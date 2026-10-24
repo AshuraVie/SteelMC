@@ -24,7 +24,7 @@ use steel_registry::{
 };
 use steel_utils::Downcast as _;
 use steel_utils::locks::SyncMutex;
-use steel_utils::types::{Difficulty, InteractionHand};
+use steel_utils::types::{Difficulty, InteractionHand, UpdateFlags};
 use steel_utils::{
     BlockPos, BlockStateId, ChunkPos, Direction, Identifier, SectionPos, WorldAabb, axis::Axis,
     block_util::FoundRectangle,
@@ -41,7 +41,8 @@ use crate::entity::mob::Mob;
 use crate::inventory::equipment::EquipmentSlot;
 use crate::portal::PortalKind;
 use crate::test_support::{
-    cross_world_damage_test_world, fresh_test_world, insert_ready_full_chunk, test_world,
+    TestEntity, cross_world_damage_test_world, fresh_test_world, insert_ready_full_chunk,
+    test_world,
 };
 use crate::world::game_event::GameEventContext;
 use crate::world::game_event::{GameEventListener, SharedGameEventListener};
@@ -486,6 +487,72 @@ impl GameEventListener for RecordingGameEventListener {
         self.events.lock().push((event, source_pos));
         true
     }
+}
+
+#[test]
+fn water_entry_emits_splash_only_on_transition() {
+    init_vanilla_registry();
+    init_behaviors();
+    let world_fixture = fresh_test_world("water_entry_splash");
+    let world = &world_fixture.world;
+    insert_ready_full_chunk(world, ChunkPos::new(0, 0));
+
+    let entity = TestEntity::new(
+        1,
+        DVec3::new(8.0, 64.0, 8.0),
+        Arc::downgrade(world),
+        &vanilla_entities::ITEM,
+    );
+
+    let listener = Arc::new(RecordingGameEventListener::new(DVec3::new(8.5, 64.5, 8.5)));
+    let shared_listener = Arc::clone(&listener) as SharedGameEventListener;
+    let _registration = RegisteredGameEventListener::new(
+        world,
+        SectionPos::from_block_pos(BlockPos::new(8, 64, 8)),
+        shared_listener,
+    );
+
+    // The first tick clears `firstTick` without a splash.
+    entity.base_tick();
+    assert!(listener.events.lock().is_empty());
+
+    // Entering water emits exactly one splash.
+    assert!(world.set_block(
+        BlockPos::new(8, 64, 8),
+        vanilla_blocks::WATER.default_state(),
+        UpdateFlags::UPDATE_NONE,
+    ));
+    entity.base_tick();
+    assert_eq!(
+        listener
+            .events
+            .lock()
+            .iter()
+            .map(|(event, _)| *event)
+            .collect::<Vec<_>>(),
+        [&vanilla_game_events::SPLASH]
+    );
+
+    // Remaining in water does not repeat the event.
+    entity.base_tick();
+    assert_eq!(listener.events.lock().len(), 1);
+
+    // Leaving and re-entering water emits again.
+    assert!(world.set_block(
+        BlockPos::new(8, 64, 8),
+        vanilla_blocks::AIR.default_state(),
+        UpdateFlags::UPDATE_NONE,
+    ));
+    entity.base_tick();
+    assert_eq!(listener.events.lock().len(), 1);
+
+    assert!(world.set_block(
+        BlockPos::new(8, 64, 8),
+        vanilla_blocks::WATER.default_state(),
+        UpdateFlags::UPDATE_NONE,
+    ));
+    entity.base_tick();
+    assert_eq!(listener.events.lock().len(), 2);
 }
 
 #[test]

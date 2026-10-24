@@ -235,6 +235,7 @@ pub struct EntityBaseState {
     in_block_state: Option<BlockStateId>,
     fluid_contact: EntityFluidContact,
     was_eye_in_water: bool,
+    was_touching_water: bool,
     piston_movement: EntityPistonMovement,
     fall_distance: f64,
     stuck_speed_multiplier: DVec3,
@@ -268,6 +269,7 @@ impl EntityBaseState {
             in_block_state: None,
             fluid_contact: EntityFluidContact::default(),
             was_eye_in_water: false,
+            was_touching_water: false,
             piston_movement: EntityPistonMovement::new(),
             fall_distance: 0.0,
             stuck_speed_multiplier: DVec3::ZERO,
@@ -689,6 +691,11 @@ impl EntityBase {
     /// Returns vanilla `wasEyeInWater` from the previous fluid refresh.
     pub fn was_eye_in_water(&self) -> bool {
         self.state.lock().was_eye_in_water
+    }
+
+    /// Returns whether the last base-tick fluid refresh found water.
+    pub fn was_touching_water(&self) -> bool {
+        self.state.lock().was_touching_water
     }
 
     /// Returns accumulated vanilla fall distance.
@@ -1671,10 +1678,12 @@ impl EntityBase {
     /// Stores fluid contact for a vanilla base-tick refresh.
     ///
     /// Vanilla updates `wasEyeInWater` from the previous fluid interaction
-    /// before scanning the current one.
+    /// before scanning the current one. `wasTouchingWater` tracks the current
+    /// scan so callers can compare it with the previous tick before refreshing.
     pub fn set_fluid_contact_for_base_tick(&self, fluid_contact: EntityFluidContact) {
         let mut state = self.state.lock();
         state.was_eye_in_water = state.fluid_contact.eye_in_water();
+        state.was_touching_water = fluid_contact.water_height() > 0.0;
         state.fluid_contact = fluid_contact;
     }
 

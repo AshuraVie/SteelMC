@@ -1314,6 +1314,14 @@ impl Entity for Player {
         LivingEntity::base_tick_living_entity(self);
     }
 
+    fn swim_splash_sound(&self) -> SoundEventRef {
+        &sound_events::ENTITY_PLAYER_SPLASH
+    }
+
+    fn swim_high_speed_splash_sound(&self) -> SoundEventRef {
+        &sound_events::ENTITY_PLAYER_SPLASH_HIGH_SPEED
+    }
+
     fn scoreboard_name(&self) -> String {
         self.gameprofile.name().to_owned()
     }

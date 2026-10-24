@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 
 use super::*;
 use crate::entity::leash::Leashable;
+use rand::{RngExt, rng};
 use steel_math::DEGREE_90;
 
 /// Vanilla `Entity.refreshDimensions` small-entity limit: only entities at most
@@ -974,7 +975,14 @@ pub trait Entity: EntityEventSource + ErasedType + Send + Sync + 'static {
         self.base().advance_base_tick_state();
         self.handle_portal();
         self.base().advance_powder_snow_contact_for_base_tick();
-        self.refresh_fluid_contact_for_base_tick();
+        let was_touching_water = self.base().was_touching_water();
+        let contact = self.refresh_fluid_contact_for_base_tick();
+        if contact.water_height() > 0.0 && !was_touching_water && !self.is_first_tick() {
+            self.do_water_splash_effect();
+        }
+        if let Some(world) = self.level() {
+            self.apply_fluid_current_for_base_tick(&world, contact);
+        }
         self.update_swimming();
         self.base().reset_fall_distance_in_water();
         if self
@@ -2216,7 +2224,6 @@ pub trait Entity: EntityEventSource + ErasedType + Send + Sync + 'static {
         };
         if advance_eye_water_history {
             self.base().set_fluid_contact_for_base_tick(contact);
-            self.apply_fluid_current_for_base_tick(&world, contact);
         } else {
             self.base().set_fluid_contact(contact);
         }
@@ -2966,6 +2973,41 @@ pub trait Entity: EntityEventSource + ErasedType + Send + Sync + 'static {
                 None,
             );
         }
+    }
+
+    /// Returns the sound played when this entity enters water at low speed.
+    fn swim_splash_sound(&self) -> SoundEventRef {
+        &sound_events::ENTITY_GENERIC_SPLASH
+    }
+
+    /// Returns the sound played when this entity enters water at high speed.
+    fn swim_high_speed_splash_sound(&self) -> SoundEventRef {
+        &sound_events::ENTITY_GENERIC_SPLASH
+    }
+
+    /// Plays the vanilla water-entry splash sound and emits `SPLASH`.
+    fn do_water_splash_effect(&self) {
+        let (movement, volume_modifier) = if let Some(passenger) = self.controlling_passenger() {
+            (passenger.velocity(), 0.9)
+        } else {
+            (self.velocity(), 0.2)
+        };
+        let speed = ((movement.x * movement.x * 0.2
+            + movement.y * movement.y
+            + movement.z * movement.z * 0.2)
+            .sqrt() as f32
+            * volume_modifier)
+            .min(1.0);
+        let pitch = 1.0 + (rng().random::<f32>() - rng().random::<f32>()) * 0.4;
+        if speed < 0.25 {
+            self.play_sound(self.swim_splash_sound(), speed, pitch);
+        } else {
+            self.play_sound(self.swim_high_speed_splash_sound(), speed, pitch);
+        }
+
+        // VANILLA CLIENT-LOCAL: the bubble/splash particle loop uses `Level.addParticle`.
+
+        self.game_event(&vanilla_game_events::SPLASH);
     }
 
     /// Plays vanilla's extinguished-on-fire entity sound.
