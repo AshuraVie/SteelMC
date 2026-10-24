@@ -386,14 +386,7 @@ impl Player {
 
     fn play_server_side_sound(&self, sound: SoundEventRef) {
         if let Some(world) = self.level() {
-            world.play_sound_at(
-                sound,
-                self.sound_source(),
-                self.position(),
-                1.0,
-                1.0,
-                None,
-            );
+            world.play_sound_at(sound, self.sound_source(), self.position(), 1.0, 1.0, None);
         }
     }
 
