@@ -8,7 +8,7 @@ use std::sync::Arc;
 use steel_registry::dimension_type::DimensionTypeRef;
 use steel_registry::vanilla_dimension_types;
 use steel_utils::types::{Difficulty, GameType};
-use steel_utils::{BlockPos, BlockStateId, ChunkPos, Identifier};
+use steel_utils::{BlockPos, BlockStateId, ChunkPos, Identifier, PackedSectionBlockPos};
 use steel_worldgen::density_functions::overworld::OverworldNoiseSettings;
 use tokio::runtime::{Builder, Runtime};
 use toml::map::Map;
@@ -17,6 +17,7 @@ use crate::bootstrap::init_globals;
 use crate::chunk::Chunk;
 use crate::chunk::chunk_holder::ChunkHolder;
 use crate::chunk::chunk_ticket_manager::ChunkTicketLevel;
+use crate::chunk::paletted_container::BlockPalette;
 use crate::chunk::section::{ChunkSection, Sections};
 use crate::chunk::status::ChunkStatus;
 use crate::entity::damage::DamageHistory;
@@ -111,7 +112,7 @@ pub fn insert_full_chunk(
     let min_y = world.get_min_y();
     let height = world.get_height();
     let sections = Sections::from_owned(
-        (0..height / 16)
+        (0..height / BlockPalette::SIZE as i32)
             .map(|_| ChunkSection::new_empty())
             .collect::<Vec<_>>()
             .into_boxed_slice(),
@@ -139,13 +140,12 @@ pub fn insert_full_chunk(
 ///
 /// `pos` must belong to the chunk that owns `sections`.
 pub fn set_block(sections: &Sections, min_y: i32, pos: BlockPos, state: BlockStateId) {
-    let local_y = pos.0.y - min_y;
-    let section_index = (local_y / 16) as usize;
-    let section_y = (local_y % 16) as usize;
-    let local_x = pos.0.x.rem_euclid(16) as usize;
-    let local_z = pos.0.z.rem_euclid(16) as usize;
+    let relative = PackedSectionBlockPos::from_block_pos(pos);
 
-    sections.sections[section_index]
-        .write()
-        .set_block_state(local_x, section_y, local_z, state);
+    sections.set_relative_block(
+        usize::from(relative.x()),
+        (pos.0.y - min_y) as usize,
+        usize::from(relative.z()),
+        state,
+    );
 }
