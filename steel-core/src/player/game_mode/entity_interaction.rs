@@ -384,7 +384,7 @@ impl Player {
         self.play_sound(sound, 1.0, 1.0);
     }
 
-    fn play_server_side_sound(&self, sound: SoundEventRef) {
+    fn play_attack_sound(&self, sound: SoundEventRef) {
         if let Some(world) = self.level() {
             world.play_sound_at(sound, self.sound_source(), self.position(), 1.0, 1.0, None);
         }
@@ -439,7 +439,7 @@ impl Player {
         let full_strength_attack = attack_strength_scale > 0.9;
         let knockback_attack = self.is_sprinting() && full_strength_attack;
         if knockback_attack {
-            self.play_server_side_sound(&sound_events::ENTITY_PLAYER_ATTACK_KNOCKBACK);
+            self.play_attack_sound(&sound_events::ENTITY_PLAYER_ATTACK_KNOCKBACK);
         }
         self.reset_attack_strength_ticker();
 
@@ -459,9 +459,9 @@ impl Player {
         let was_hurt = entity.hurt(&target_world, &damage_source, total_damage);
         if was_hurt {
             if full_strength_attack {
-                self.play_server_side_sound(&sound_events::ENTITY_PLAYER_ATTACK_STRONG);
+                self.play_attack_sound(&sound_events::ENTITY_PLAYER_ATTACK_STRONG);
             } else {
-                self.play_server_side_sound(&sound_events::ENTITY_PLAYER_ATTACK_WEAK);
+                self.play_attack_sound(&sound_events::ENTITY_PLAYER_ATTACK_WEAK);
             }
             self.set_last_hurt_mob(Some(target));
             let sprint_knockback = if knockback_attack { 0.5 } else { 0.0 };
@@ -475,7 +475,7 @@ impl Player {
             self.damage_stats_and_hearts(entity, old_entity_living_health);
             self.cause_food_exhaustion(food_constants::EXHAUSTION_ATTACK);
         } else {
-            self.play_server_side_sound(&sound_events::ENTITY_PLAYER_ATTACK_NODAMAGE);
+            self.play_attack_sound(&sound_events::ENTITY_PLAYER_ATTACK_NODAMAGE);
         }
 
         let world = self.get_world();
