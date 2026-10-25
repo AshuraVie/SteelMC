@@ -12,7 +12,7 @@ use steel_registry::stat::vanilla_stat_types;
 use steel_registry::vanilla_attributes;
 use steel_registry::{
     REGISTRY, blocks::properties::Direction, item_stack::ItemStack, level_events, vanilla_blocks,
-    vanilla_game_events,
+    vanilla_game_events, vanilla_mob_effects,
 };
 use steel_utils::{
     BlockPos, BlockStateId,
@@ -513,9 +513,9 @@ fn requires_correct_tool(state: BlockStateId) -> bool {
 
 /// Gets the destroy progress per tick for a block.
 ///
-/// This is based on the vanilla formula:
-/// `1.0 / (destroy_time * 30.0)` for survival with correct tool
-/// `1.0 / (destroy_time * 100.0)` for survival with wrong tool
+/// Mirrors vanilla `Player.getDestroySpeed` and
+/// `BlockBehaviour.getDestroyProgress`:
+/// `speed / destroy_time / (hasCorrectTool ? 30 : 100)`.
 /// Instant break for creative mode.
 fn get_destroy_progress(player: &Player, block_state: BlockStateId) -> f32 {
     let Some(block) = REGISTRY.blocks.by_state_id(block_state) else {
@@ -539,29 +539,63 @@ fn get_destroy_progress(player: &Player, block_state: BlockStateId) -> f32 {
         return 1.0;
     }
 
-    // Get player's mining speed
-    let mining_speed = {
+    // Read the held tool once so mining speed and tool correctness share a snapshot.
+    let (mut speed, has_correct_tool) = {
         let inv = player.inventory.lock();
         let main_hand = inv.get_item_in_hand(InteractionHand::MainHand);
-        main_hand.get_destroy_speed(block_state)
+        (
+            main_hand.get_destroy_speed(block_state),
+            main_hand.is_correct_tool_for_drops(block_state),
+        )
     };
 
-    // Check if player has the correct tool
-    let has_correct_tool = {
-        let inv = player.inventory.lock();
-        let main_hand = inv.get_item_in_hand(InteractionHand::MainHand);
-        main_hand.is_correct_tool_for_drops(block_state)
+    let (mining_efficiency, block_break_speed, submerged_mining_speed) = {
+        let attributes = player.attributes().lock();
+        (
+            attributes
+                .get_value(vanilla_attributes::MINING_EFFICIENCY)
+                .unwrap_or(0.0) as f32,
+            attributes
+                .get_value(vanilla_attributes::BLOCK_BREAK_SPEED)
+                .unwrap_or(1.0) as f32,
+            attributes
+                .get_value(vanilla_attributes::SUBMERGED_MINING_SPEED)
+                .unwrap_or(0.2) as f32,
+        )
     };
 
-    // Apply speed modifiers
-    let speed = mining_speed;
+    // Vanilla `Player.getDestroySpeed` applies these in order.
+    if speed > 1.0 {
+        speed += mining_efficiency;
+    }
 
-    // TODO: Apply efficiency enchantment
-    // TODO: Apply haste/mining fatigue effects
-    // TODO: Apply underwater/in-air penalties
+    let dig_amplifier = player
+        .mob_effect(vanilla_mob_effects::HASTE)
+        .map(|effect| effect.amplifier())
+        .max(
+            player
+                .mob_effect(vanilla_mob_effects::CONDUIT_POWER)
+                .map(|effect| effect.amplifier()),
+        );
+    if let Some(amplifier) = dig_amplifier {
+        speed *= 1.0 + (amplifier + 1) as f32 * 0.2;
+    }
 
-    // Calculate destroy progress per tick
-    // Vanilla formula: speed / hardness / (hasCorrectTool ? 30 : 100)
+    if let Some(fatigue) = player.mob_effect(vanilla_mob_effects::MINING_FATIGUE) {
+        speed *= 0.3_f64.powi(fatigue.amplifier() + 1) as f32;
+    }
+
+    speed *= block_break_speed;
+
+    if player.is_eye_in_water() {
+        speed *= submerged_mining_speed;
+    }
+
+    if !player.on_ground() {
+        speed /= 5.0;
+    }
+
+    // Vanilla `BlockBehaviour.getDestroyProgress`.
     let divisor = if has_correct_tool || !block.config.requires_correct_tool_for_drops {
         30.0
     } else {
@@ -602,4 +636,81 @@ fn drop_block_loot(
     BLOCK_BEHAVIORS
         .get_behavior(state.get_block())
         .spawn_after_break(state, world, pos, tool, true);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::behavior::init_behaviors;
+    use crate::entity::EntityFluidContact;
+    use crate::test_support::{TestPlayerBuilder, fresh_test_world};
+    use steel_registry::{
+        init_vanilla_registry, vanilla_attributes, vanilla_blocks, vanilla_items,
+        vanilla_mob_effects,
+    };
+
+    #[test]
+    fn mining_speed_modifiers_match_vanilla() {
+        init_vanilla_registry();
+        init_behaviors();
+        let world_fixture = fresh_test_world("mining_speed_modifiers");
+        let player = TestPlayerBuilder::new(Arc::clone(&world_fixture.world), "Player", 1).build();
+        player.set_on_ground(true);
+        player
+            .inventory
+            .lock()
+            .set_selected_item(ItemStack::new(&vanilla_items::IRON_PICKAXE));
+
+        let state = vanilla_blocks::STONE.default_state();
+        let destroy_time = REGISTRY
+            .blocks
+            .by_state_id(state)
+            .expect("stone state should be registered")
+            .config
+            .destroy_time;
+        let tool_speed = {
+            let inventory = player.inventory.lock();
+            inventory
+                .get_item_in_hand(InteractionHand::MainHand)
+                .get_destroy_speed(state)
+        };
+        let base = tool_speed / destroy_time / 30.0;
+        let progress = || get_destroy_progress(&player, state);
+
+        assert!((progress() - base).abs() < 1e-6);
+
+        player.set_mob_effect(vanilla_mob_effects::HASTE, 0);
+        assert!((progress() - base * 1.2).abs() < 1e-6);
+
+        player.set_mob_effect(vanilla_mob_effects::CONDUIT_POWER, 1);
+        assert!((progress() - base * 1.4).abs() < 1e-6);
+        player.set_mob_effect_active(vanilla_mob_effects::HASTE, false);
+        player.set_mob_effect_active(vanilla_mob_effects::CONDUIT_POWER, false);
+
+        player.set_mob_effect(vanilla_mob_effects::MINING_FATIGUE, 0);
+        assert!((progress() - base * 0.3).abs() < 1e-6);
+        player.set_mob_effect_active(vanilla_mob_effects::MINING_FATIGUE, false);
+
+        {
+            let mut attributes = player.attributes().lock();
+            attributes.set_base_value(vanilla_attributes::MINING_EFFICIENCY, 10.0);
+        }
+        let efficiency_scale = (tool_speed + 10.0) / tool_speed;
+        assert!((progress() - base * efficiency_scale).abs() < 1e-6);
+
+        {
+            let mut attributes = player.attributes().lock();
+            attributes.set_base_value(vanilla_attributes::BLOCK_BREAK_SPEED, 2.0);
+        }
+        assert!((progress() - base * efficiency_scale * 2.0).abs() < 1e-6);
+
+        player.set_on_ground(false);
+        assert!((progress() - base * efficiency_scale * 2.0 / 5.0).abs() < 1e-6);
+        player.set_on_ground(true);
+
+        player
+            .base()
+            .set_fluid_contact(EntityFluidContact::from_parts(1.0, 0.0, true, false));
+        assert!((progress() - base * efficiency_scale * 2.0 * 0.2).abs() < 1e-6);
+    }
 }
