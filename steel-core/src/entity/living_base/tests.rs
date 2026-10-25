@@ -3,7 +3,7 @@ use steel_registry::{
     data_components::vanilla_components::{SwingAnimation, SwingAnimationType},
     init_vanilla_registry,
     item_stack::ItemStack,
-    vanilla_attributes, vanilla_entities,
+    vanilla_attributes, vanilla_enchantments, vanilla_entities,
     vanilla_entity_data::PlayerEntityData,
     vanilla_items, vanilla_mob_effects,
 };
@@ -369,6 +369,28 @@ fn equipment_is_living_entity_state() {
             .get_ref(EquipmentSlot::Chest)
             .is(&vanilla_items::ELYTRA)
     );
+}
+
+#[test]
+fn equipment_enchantment_attribute_modifiers_use_level_and_slot() {
+    init_vanilla_registry();
+    let base = LivingEntityBase::new(&vanilla_entities::PLAYER);
+    let efficiency = || {
+        base.attributes()
+            .lock()
+            .required_value(vanilla_attributes::MINING_EFFICIENCY)
+    };
+
+    let mut pickaxe = ItemStack::new(&vanilla_items::IRON_PICKAXE);
+    pickaxe.set_enchantments(&[(vanilla_enchantments::EFFICIENCY.key.clone(), 3)], false);
+    base.refresh_equipment_attribute_modifiers(EquipmentSlot::MainHand, &pickaxe);
+    assert_eq!(efficiency().to_bits(), 10.0_f64.to_bits());
+
+    base.refresh_equipment_attribute_modifiers(EquipmentSlot::MainHand, &ItemStack::empty());
+    assert_eq!(efficiency().to_bits(), 0.0_f64.to_bits());
+
+    base.refresh_equipment_attribute_modifiers(EquipmentSlot::OffHand, &pickaxe);
+    assert_eq!(efficiency().to_bits(), 0.0_f64.to_bits());
 }
 
 #[test]

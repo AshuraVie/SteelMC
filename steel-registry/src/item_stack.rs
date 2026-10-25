@@ -18,6 +18,7 @@ use text_components::TextComponent;
 
 use crate::{
     REGISTRY, RegistryEntry, RegistryExt,
+    attribute::{AttributeRef, ResolvedAttributeModifier},
     damage_type::DamageTypeRef,
     data_components::{
         Component, ComponentData, ComponentPatchEntry, CustomData, DataComponentMap,
@@ -427,6 +428,54 @@ impl ItemStack {
     #[must_use]
     pub fn get_attribute_modifiers(&self) -> Option<&ItemAttributeModifiers> {
         self.get(ATTRIBUTE_MODIFIERS)
+    }
+
+    /// Includes enchantment attribute effects.
+    pub fn for_each_modifier(
+        &self,
+        slot: EquipmentSlot,
+        mut consumer: impl FnMut(AttributeRef, ResolvedAttributeModifier),
+    ) {
+        if let Some(modifiers) = self.get_attribute_modifiers() {
+            for entry in modifiers.for_slot(slot) {
+                consumer(
+                    entry.attribute,
+                    ResolvedAttributeModifier {
+                        id: entry.id.clone(),
+                        amount: entry.amount,
+                        operation: entry.operation,
+                    },
+                );
+            }
+        }
+
+        let Some(enchantments) = self.get_enchantments() else {
+            return;
+        };
+
+        for (key, level) in enchantments.iter() {
+            let Some(enchantment) = REGISTRY.enchantments.by_key(key) else {
+                continue;
+            };
+            if !enchantment.matching_slot(slot) {
+                continue;
+            }
+
+            for effect in enchantment.effects.attributes {
+                let id = Identifier::new(
+                    effect.id.namespace.clone(),
+                    format!("{}/{}", effect.id.path, slot.name()),
+                );
+                consumer(
+                    effect.attribute,
+                    ResolvedAttributeModifier {
+                        id,
+                        amount: f64::from(effect.amount.calculate(*level as i32)),
+                        operation: effect.operation,
+                    },
+                );
+            }
+        }
     }
 
     /// Returns the equipment slot this item can be equipped to, if any.

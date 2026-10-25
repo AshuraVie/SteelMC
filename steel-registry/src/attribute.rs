@@ -93,6 +93,13 @@ impl Attribute {
 
 pub type AttributeRef = &'static Attribute;
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedAttributeModifier {
+    pub id: Identifier,
+    pub amount: f64,
+    pub operation: AttributeModifierOperation,
+}
+
 pub struct AttributeRegistry {
     attributes_by_id: Vec<AttributeRef>,
     attributes_by_key: FxHashMap<Identifier, usize>,

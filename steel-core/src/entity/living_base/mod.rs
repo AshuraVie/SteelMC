@@ -1025,34 +1025,30 @@ impl LivingEntityBase {
             return;
         }
 
-        let Some(modifiers) = item_stack.get_attribute_modifiers() else {
-            return;
-        };
-
-        for entry in modifiers.for_slot(slot) {
+        item_stack.for_each_modifier(slot, |attribute, modifier| {
             for (index, keys) in installed_modifiers.iter_mut().enumerate() {
                 if index == slot_index {
                     continue;
                 }
-                keys.retain(|key| key.attribute.key != entry.attribute.key || key.id != entry.id);
+                keys.retain(|key| key.attribute.key != attribute.key || key.id != modifier.id);
             }
 
-            attributes.remove_modifier(entry.attribute, &entry.id);
+            attributes.remove_modifier(attribute, &modifier.id);
             if attributes.add_modifier(
-                entry.attribute,
+                attribute,
                 AttributeModifier {
-                    id: entry.id.clone(),
-                    amount: entry.amount,
-                    operation: entry.operation,
+                    id: modifier.id.clone(),
+                    amount: modifier.amount,
+                    operation: modifier.operation,
                 },
                 false,
             ) {
                 installed_modifiers[slot_index].push(EquipmentAttributeModifierKey {
-                    attribute: entry.attribute,
-                    id: entry.id.clone(),
+                    attribute,
+                    id: modifier.id,
                 });
             }
-        }
+        });
     }
 
     /// Returns whether this living entity has an active vanilla mob effect.
