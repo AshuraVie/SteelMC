@@ -513,10 +513,8 @@ fn requires_correct_tool(state: BlockStateId) -> bool {
 
 /// Gets the destroy progress per tick for a block.
 ///
-/// Mirrors vanilla `Player.getDestroySpeed` and
-/// `BlockBehaviour.getDestroyProgress`:
-/// `speed / destroy_time / (hasCorrectTool ? 30 : 100)`.
-/// Instant break for creative mode.
+/// `speed / destroy_time / (hasCorrectTool ? 30 : 100)`, where `speed` is the
+/// player's modified mining speed. Instant break for creative mode.
 fn get_destroy_progress(player: &Player, block_state: BlockStateId) -> f32 {
     let Some(block) = REGISTRY.blocks.by_state_id(block_state) else {
         return 0.0;
@@ -697,6 +695,17 @@ mod tests {
         }
         let efficiency_scale = (tool_speed + 10.0) / tool_speed;
         assert!((progress() - base * efficiency_scale).abs() < 1e-6);
+
+        // Efficiency is ignored when the base speed is not above 1.0.
+        player
+            .inventory
+            .lock()
+            .set_selected_item(ItemStack::empty());
+        assert!((progress() - 1.0 / destroy_time / 100.0).abs() < 1e-6);
+        player
+            .inventory
+            .lock()
+            .set_selected_item(ItemStack::new(&vanilla_items::IRON_PICKAXE));
 
         {
             let mut attributes = player.attributes().lock();
