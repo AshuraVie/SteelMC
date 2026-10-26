@@ -402,6 +402,9 @@ impl Entity for ExperienceOrbEntity {
         self.entity_type
     }
 
+    // Vanilla `ExperienceOrb` overrides this with an empty body.
+    fn do_water_splash_effect(&self) {}
+
     fn tick(self: Arc<Self>) {
         self.default_tick();
         self.set_old_position_to_current();

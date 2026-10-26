@@ -2987,6 +2987,11 @@ pub trait Entity: EntityEventSource + ErasedType + Send + Sync + 'static {
 
     /// Plays the vanilla water-entry splash sound and emits `SPLASH`.
     fn do_water_splash_effect(&self) {
+        self.default_do_water_splash_effect();
+    }
+
+    /// The default implementation of `Entity.doWaterSplashEffect` when not overridden.
+    fn default_do_water_splash_effect(&self) {
         let (movement, volume_modifier) = if let Some(passenger) = self.controlling_passenger() {
             (passenger.velocity(), 0.9)
         } else {

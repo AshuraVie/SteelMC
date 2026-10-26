@@ -1314,6 +1314,12 @@ impl Entity for Player {
         LivingEntity::base_tick_living_entity(self);
     }
 
+    fn do_water_splash_effect(&self) {
+        if !self.is_spectator() {
+            self.default_do_water_splash_effect();
+        }
+    }
+
     fn swim_splash_sound(&self) -> SoundEventRef {
         &sound_events::ENTITY_PLAYER_SPLASH
     }

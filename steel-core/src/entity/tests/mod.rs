@@ -35,6 +35,7 @@ use uuid::Uuid;
 
 use crate::behavior::{BlockBehavior, blocks::WitherRoseBlock, init_behaviors};
 use crate::chunk_saver::ChunkStorage;
+use crate::entity::ExperienceOrbEntity;
 use crate::entity::damage::DamageSource;
 use crate::entity::entities::{ChestMinecartEntity, PigEntity};
 use crate::entity::mob::Mob;
@@ -553,6 +554,39 @@ fn water_entry_emits_splash_only_on_transition() {
     ));
     entity.base_tick();
     assert_eq!(listener.events.lock().len(), 2);
+}
+
+#[test]
+fn experience_orb_water_entry_emits_no_splash() {
+    init_vanilla_registry();
+    init_behaviors();
+    let world_fixture = fresh_test_world("experience_orb_water_entry");
+    let world = &world_fixture.world;
+    insert_ready_full_chunk(world, ChunkPos::new(0, 0));
+
+    let orb = ExperienceOrbEntity::new(
+        &vanilla_entities::EXPERIENCE_ORB,
+        1,
+        DVec3::new(8.0, 64.0, 8.0),
+        Arc::downgrade(world),
+    );
+
+    let listener = Arc::new(RecordingGameEventListener::new(DVec3::new(8.5, 64.5, 8.5)));
+    let shared_listener = Arc::clone(&listener) as SharedGameEventListener;
+    let _registration = RegisteredGameEventListener::new(
+        world,
+        SectionPos::from_block_pos(BlockPos::new(8, 64, 8)),
+        shared_listener,
+    );
+
+    orb.base_tick();
+    assert!(world.set_block(
+        BlockPos::new(8, 64, 8),
+        vanilla_blocks::WATER.default_state(),
+        UpdateFlags::UPDATE_NONE,
+    ));
+    orb.base_tick();
+    assert!(listener.events.lock().is_empty());
 }
 
 #[test]
