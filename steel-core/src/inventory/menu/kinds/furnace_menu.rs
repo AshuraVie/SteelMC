@@ -204,7 +204,10 @@ impl MenuKind for FurnaceMenuKind {
         if remaining.count() == clicked.count() {
             return Some(ItemStack::empty());
         }
-        if let Some(remainder) = behavior.slots()[slot_index].on_take(guard, &remaining, player) {
+        let taken = clicked.copy_with_count(clicked.count - remaining.count);
+        let slot = &behavior.slots()[slot_index];
+        slot.on_quick_craft(&taken, player);
+        if let Some(remainder) = slot.on_take(guard, &remaining, player) {
             player.add_item_or_drop_with_guard(guard, remainder, Prediction::Predicted);
         }
         Some(clicked)
@@ -217,11 +220,46 @@ impl MenuKind for FurnaceMenuKind {
 
 #[cfg(test)]
 mod tests {
-    use steel_registry::{init_vanilla_registry, vanilla_items};
+    use std::sync::Arc;
+
+    use steel_registry::{
+        init_vanilla_registry, items::Item, stat::vanilla_stat_types, vanilla_items,
+    };
     use steel_utils::locks::IntoShared as _;
 
     use super::*;
-    use crate::inventory::container::SimpleContainer;
+    use crate::inventory::{
+        click::{Click, MouseButton, SwapTarget},
+        container::{Container as _, SimpleContainer},
+    };
+    use crate::player::Player;
+    use crate::test_support::{TestPlayerBuilder, fresh_test_world};
+
+    fn crafted_count(player: &Player, item: &'static Item) -> i32 {
+        let crafted = vanilla_stat_types::ITEM_CRAFTED.get(item);
+        player
+            .stats()
+            .into_iter()
+            .find_map(|(stat, count)| (stat == crafted).then_some(count))
+            .unwrap_or(0)
+    }
+
+    fn result_menu(key: &'static str) -> (Arc<Player>, Menu) {
+        init_vanilla_registry();
+        let world_fixture = fresh_test_world(key);
+        let player = TestPlayerBuilder::new(Arc::clone(&world_fixture.world), "Smelter", 1).build();
+        let container = SimpleContainer::new(3).into_shared();
+        container
+            .lock()
+            .set_item(2, ItemStack::with_count(&vanilla_items::IRON_INGOT, 3));
+        let menu = furnace_menu(
+            Arc::clone(&player.inventory),
+            1,
+            ContainerRef::from(container),
+            FurnaceKind::Furnace,
+        );
+        (player, menu)
+    }
 
     #[test]
     fn manual_input_accepts_items_without_a_matching_recipe() {
@@ -251,5 +289,35 @@ mod tests {
 
             assert!(menu.behavior().slots()[0].may_place(&stack));
         }
+    }
+
+    #[test]
+    fn taking_the_result_awards_item_crafted() {
+        let (player, mut menu) = result_menu("furnace_menu_item_crafted");
+
+        menu.clicked(
+            Click::Pickup {
+                slot: 2,
+                button: MouseButton::Left,
+            },
+            &player,
+        );
+
+        assert_eq!(crafted_count(&player, &vanilla_items::IRON_INGOT), 3);
+    }
+
+    #[test]
+    fn swapping_the_result_awards_no_item_crafted() {
+        let (player, mut menu) = result_menu("furnace_menu_item_crafted_swap");
+
+        menu.clicked(
+            Click::Swap {
+                slot: 2,
+                with: SwapTarget::Hotbar(0),
+            },
+            &player,
+        );
+
+        assert_eq!(crafted_count(&player, &vanilla_items::IRON_INGOT), 0);
     }
 }
