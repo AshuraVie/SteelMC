@@ -7,6 +7,7 @@ mod fishing_hook;
 mod snowball;
 mod splash_potion;
 mod thrown_egg;
+mod thrown_trident;
 
 pub use ender_pearl::EnderPearlEntity;
 pub use eye_of_ender::EyeOfEnderEntity;
@@ -15,3 +16,4 @@ pub use fishing_hook::{FishingHookEntity, FishingHookState};
 pub use snowball::SnowballEntity;
 pub use splash_potion::SplashPotionEntity;
 pub use thrown_egg::ThrownEggEntity;
+pub use thrown_trident::ThrownTridentEntity;
