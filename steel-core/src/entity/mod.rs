@@ -818,6 +818,7 @@ pub use callback::{
     PlayerEntityCallback, RemovalReason,
 };
 pub use conversion::{AfterConversion, ConversionParams, ConversionType};
+pub use entities::mobs::hostile::zombie::Zombie;
 pub(crate) use entity::apply_entity_look_at;
 pub(crate) use entity::position_rider_default;
 pub use entity::{
@@ -859,7 +860,6 @@ pub use projectile::{
     compute_margin, get_hit_result_on_view_vector, spawn_throwable_item_projectile,
 };
 pub use reference::EntityReference;
-pub use entities::mobs::hostile::zombie::Zombie;
 pub use registry::{ENTITIES, EntityLoadRequest, EntityRegistry, init_entities};
 pub(crate) use spawn::{
     AgeableMobGroupData, EntitySpawnPlacement, EntitySpawnReason, EntitySpawnRequest,
