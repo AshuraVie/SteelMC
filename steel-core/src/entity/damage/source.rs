@@ -142,7 +142,10 @@ impl DamageSource {
     ///
     /// Mirrors vanilla `DamageSource.getLocalizedDeathMessage`.
     #[must_use]
-    pub fn get_localized_death_message(&self, victim: &dyn LivingEntity) -> TextComponent {
+    pub fn get_localized_death_message<E: LivingEntity + ?Sized>(
+        &self,
+        victim: &E,
+    ) -> TextComponent {
         let death_message = format!("death.attack.{}", self.damage_type.message_id);
 
         let Some(name_entity) = self.causing_entity().or_else(|| self.direct_entity()) else {
@@ -151,9 +154,9 @@ impl DamageSource {
                 .level()
                 .and_then(|world| get_kill_credit(victim, world.as_ref()))
             else {
-                return translated_death_message(death_message, vec![victim_name]);
+                return translated_message(death_message, vec![victim_name]);
             };
-            return translated_death_message(
+            return translated_message(
                 format!("{death_message}.player"),
                 vec![victim_name, kill_credit.display_name()],
             );
@@ -175,7 +178,7 @@ impl DamageSource {
 
         let victim_name = victim.display_name();
         match held {
-            Some(held) if !held.is_empty() && held.has(CUSTOM_NAME) => translated_death_message(
+            Some(held) if !held.is_empty() && held.has(CUSTOM_NAME) => translated_message(
                 format!("{death_message}.item"),
                 vec![
                     victim_name,
@@ -183,7 +186,7 @@ impl DamageSource {
                     ITEM_BEHAVIORS.hover_name(&held).into_owned(),
                 ],
             ),
-            _ => translated_death_message(death_message, vec![victim_name, name]),
+            _ => translated_message(death_message, vec![victim_name, name]),
         }
     }
 
@@ -201,7 +204,7 @@ impl DamageSource {
     }
 }
 
-fn translated_death_message(key: String, args: Vec<TextComponent>) -> TextComponent {
+pub(crate) fn translated_message(key: String, args: Vec<TextComponent>) -> TextComponent {
     TextComponent::translated(TranslatedMessage {
         key: key.into(),
         fallback: None,
