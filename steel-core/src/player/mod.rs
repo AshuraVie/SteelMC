@@ -89,7 +89,6 @@ use arc_swap::ArcSwap;
 use steel_utils::locks::SyncMutex;
 use steel_utils::types::{Difficulty, GameType, InteractionHand};
 use text_components::resolving::TextResolutor;
-use text_components::translation::TranslatedMessage;
 use text_components::{
     Modifier as _, TextComponent,
     interactivity::{ClickEvent, HoverEvent},
@@ -917,16 +916,7 @@ impl Player {
 
         let show_death_messages = world.get_game_rule(&SHOW_DEATH_MESSAGES);
 
-        // TODO: use CombatTracker for multi-arg messages (killer name, item, etc.)
-        let death_key = format!("death.attack.{}", source.damage_type.message_id);
-        let death_message = TranslatedMessage {
-            key: death_key.into(),
-            fallback: None,
-            args: Some(Box::new([TextComponent::plain(
-                self.gameprofile.name().to_owned(),
-            )])),
-        }
-        .component();
+        let death_message = source.get_localized_death_message(self);
 
         self.send_packet(CPlayerCombatKill {
             player_id: self.id(),
