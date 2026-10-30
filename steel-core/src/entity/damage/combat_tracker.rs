@@ -183,6 +183,11 @@ impl CombatTracker {
     pub(crate) fn entries(&self) -> &[CombatEntry] {
         &self.entries
     }
+
+    /// Drops recorded hits without changing combat status.
+    pub(crate) fn clear_entries(&mut self) {
+        self.entries.clear();
+    }
 }
 
 /// Builds the death message from the recorded combat entries.

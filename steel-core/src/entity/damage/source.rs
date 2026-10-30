@@ -139,8 +139,6 @@ impl DamageSource {
     }
 
     /// Returns the death message shown for `victim`.
-    ///
-    /// Mirrors vanilla `DamageSource.getLocalizedDeathMessage`.
     #[must_use]
     pub fn get_localized_death_message<E: LivingEntity + ?Sized>(
         &self,

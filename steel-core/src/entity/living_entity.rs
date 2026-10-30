@@ -935,6 +935,14 @@ pub trait LivingEntity: Entity {
         death_message(self)
     }
 
+    /// Drops recorded combat entries without changing combat status.
+    ///
+    /// Entries retain strong damage-source references, so entities leaving the
+    /// world must release them to avoid mutual ownership cycles.
+    fn clear_combat_history(&self) {
+        self.living_base().clear_combat_history();
+    }
+
     /// Applies vanilla hurt knockback for a damage source.
     fn apply_damage_knockback(&self, source: &DamageSource) {
         if source.is(&vanilla_damage_type_tags::DamageTypeTag::NO_KNOCKBACK) {

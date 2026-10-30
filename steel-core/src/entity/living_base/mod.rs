@@ -1729,6 +1729,11 @@ impl LivingEntityBase {
         self.state.lock().combat_tracker.entries().to_vec()
     }
 
+    /// Drops recorded combat entries without changing combat status.
+    pub(crate) fn clear_combat_history(&self) {
+        self.state.lock().combat_tracker.clear_entries();
+    }
+
     /// Marks death side effects as processed.
     ///
     /// Returns `false` if they were already processed.

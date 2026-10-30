@@ -282,6 +282,7 @@ impl EntityLevelCallback for EntityChunkCallback {
         if let Some(entity) = &entity {
             if let Some(living) = entity.as_living_entity() {
                 living.recheck_combat_status();
+                living.clear_combat_history();
             }
             world.mark_chunk_dirty(ChunkPos::from_entity_pos(entity.position()));
         }
