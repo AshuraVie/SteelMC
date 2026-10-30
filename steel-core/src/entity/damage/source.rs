@@ -178,11 +178,7 @@ impl DamageSource {
         match held {
             Some(held) if !held.is_empty() && held.has(CUSTOM_NAME) => translated_message(
                 format!("{death_message}.item"),
-                vec![
-                    victim_name,
-                    name,
-                    ITEM_BEHAVIORS.hover_name(&held).into_owned(),
-                ],
+                vec![victim_name, name, ITEM_BEHAVIORS.display_name(&held)],
             ),
             _ => translated_message(death_message, vec![victim_name, name]),
         }

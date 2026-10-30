@@ -7,6 +7,7 @@ use steel_registry::vanilla_block_tags::BlockTag;
 use steel_registry::vanilla_blocks;
 use steel_registry::vanilla_damage_type_tags;
 use steel_utils::BlockStateId;
+use steel_utils::translations::CHAT_SQUARE_BRACKETS;
 use text_components::interactivity::{ClickEvent, HoverEvent};
 use text_components::{Modifier as _, TextComponent};
 
@@ -210,17 +211,15 @@ pub(crate) fn death_message<E: LivingEntity + ?Sized>(victim: &E) -> TextCompone
         DeathMessageType::IntentionalGameDesign => {
             let death_message_key =
                 format!("death.attack.{}", killing_source.damage_type.message_id);
-            let link = translated_message(
-                "chat.square_brackets".to_owned(),
-                vec![translated_message(
+            let link =
+                TextComponent::translated(CHAT_SQUARE_BRACKETS.message([translated_message(
                     format!("{death_message_key}.link"),
                     Vec::new(),
-                )],
-            )
-            .click_event(ClickEvent::open_url(INTENTIONAL_GAME_DESIGN_BUG))
-            .hover_event(HoverEvent::show_text(TextComponent::plain(
-                INTENTIONAL_GAME_DESIGN_BUG_ID,
-            )));
+                )]))
+                .click_event(ClickEvent::open_url(INTENTIONAL_GAME_DESIGN_BUG))
+                .hover_event(HoverEvent::show_text(TextComponent::plain(
+                    INTENTIONAL_GAME_DESIGN_BUG_ID,
+                )));
             return translated_message(
                 format!("{death_message_key}.message"),
                 vec![victim.display_name(), link],
@@ -353,7 +352,7 @@ fn assisted_fall_message<E: LivingEntity + ?Sized>(
             vec![
                 victim.display_name(),
                 attacker_name,
-                ITEM_BEHAVIORS.hover_name(&item).into_owned(),
+                ITEM_BEHAVIORS.display_name(&item),
             ],
         ),
         _ => translated_message(
