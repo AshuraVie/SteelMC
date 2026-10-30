@@ -495,6 +495,56 @@ pub trait Entity: EntityEventSource + ErasedType + Send + Sync + 'static {
         false
     }
 
+    /// Returns the living entity credited as this explosion's indirect source.
+    fn explosion_indirect_source(&self) -> Option<SharedEntity> {
+        self.projectile_owner()
+            .filter(|owner| owner.as_living_entity().is_some())
+    }
+
+    /// Returns the point used to calculate this entity's explosion direction.
+    fn explosion_damage_origin(&self) -> DVec3 {
+        let position = self.position();
+        DVec3::new(position.x, self.get_eye_y(), position.z)
+    }
+
+    /// Returns whether this entity is wholly ignored by an explosion.
+    fn ignore_explosion(&self, _explosion: &dyn Explosion) -> bool {
+        false
+    }
+
+    /// Lets an entity source modify effective block or fluid resistance.
+    #[expect(
+        unused_variables,
+        reason = "default implementation preserves resistance"
+    )]
+    fn block_explosion_resistance(
+        &self,
+        explosion: &dyn Explosion,
+        world: &World,
+        pos: BlockPos,
+        state: BlockStateId,
+        fluid: FluidState,
+        resistance: f32,
+    ) -> f32 {
+        resistance
+    }
+
+    /// Lets an entity source veto one affected block position.
+    #[expect(unused_variables, reason = "default implementation allows destruction")]
+    fn should_block_explode(
+        &self,
+        explosion: &dyn Explosion,
+        world: &World,
+        pos: BlockPos,
+        state: BlockStateId,
+        power: f32,
+    ) -> bool {
+        true
+    }
+
+    /// Called after this entity is processed by an explosion.
+    fn on_explosion_hit(&self, _explosion_source: Option<&dyn Entity>) {}
+
     /// Returns how vanilla lets this entity respond to piston movement.
     fn piston_push_reaction(&self) -> PushReaction {
         if self.is_marker_armor_stand() {
@@ -561,6 +611,15 @@ pub trait Entity: EntityEventSource + ErasedType + Send + Sync + 'static {
     /// Base entities cannot be collided with unless a concrete entity type opts in.
     fn can_be_collided_with(&self, _other: Option<&dyn Entity>) -> bool {
         false
+    }
+
+    /// Whether movement queries must consider this entity for hard collisions.
+    ///
+    /// Returning `false` promises [`Self::can_be_collided_with`] is always false and
+    /// [`Self::can_collide_with`] never broadens the default rule. This capability may be
+    /// cached for the registered lifetime, including chunk-unload retention.
+    fn is_hard_collision_relevant(&self) -> bool {
+        true
     }
 
     /// Returns whether projectile collision may interact with this entity.
@@ -1199,6 +1258,9 @@ pub trait Entity: EntityEventSource + ErasedType + Send + Sync + 'static {
     /// Caches a live owner reference after restoring persisted owner-linked
     /// entities. Most entities do not store owner references.
     fn restore_owner_reference(&self, _owner: &SharedEntity) {}
+
+    /// Called after a teleport completes successfully.
+    fn on_teleported(&self) {}
 
     /// Sets the level callback for lifecycle events (movement, removal).
     fn set_level_callback(&self, callback: Arc<dyn EntityLevelCallback>) {
@@ -1842,10 +1904,10 @@ pub trait Entity: EntityEventSource + ErasedType + Send + Sync + 'static {
     fn calculate_view_vector(&self, pitch_degrees: f32, yaw_degrees: f32) -> DVec3 {
         let pitch = pitch_degrees.to_radians();
         let yaw = -yaw_degrees.to_radians();
-        let yaw_cos = yaw.cos();
-        let yaw_sin = yaw.sin();
-        let pitch_cos = pitch.cos();
-        let pitch_sin = pitch.sin();
+        let yaw_cos = trig::cos(yaw);
+        let yaw_sin = trig::sin(yaw);
+        let pitch_cos = trig::cos(pitch);
+        let pitch_sin = trig::sin(pitch);
         DVec3::new(
             f64::from(yaw_sin * pitch_cos),
             f64::from(-pitch_sin),
@@ -2197,7 +2259,7 @@ pub trait Entity: EntityEventSource + ErasedType + Send + Sync + 'static {
             }
         }
         if let Some(world) = self.level() {
-            self.apply_fluid_currents(&world, contact);
+            self.apply_fluid_current_impulses(&world, contact);
         }
 
         contact.any_fluid()
@@ -2239,8 +2301,8 @@ pub trait Entity: EntityEventSource + ErasedType + Send + Sync + 'static {
         contact
     }
 
-    /// Applies vanilla water/lava current impulses from the current fluid scan.
-    fn apply_fluid_currents(&self, world: &Arc<World>, contact: EntityFluidContact) {
+    /// Applies vanilla water/lava current impulses from a fluid interaction update.
+    fn apply_fluid_current_impulses(&self, world: &Arc<World>, contact: EntityFluidContact) {
         if !self.is_pushed_by_fluid() {
             return;
         }
@@ -2468,7 +2530,6 @@ pub trait Entity: EntityEventSource + ErasedType + Send + Sync + 'static {
     ) -> Result<AcceptedClientMovementOutcome, EntityMoveError> {
         if let Some(position) = accepted.position {
             self.try_set_position(position)?;
-            self.refresh_fluid_contact();
         }
 
         self.set_rotation(accepted.rotation);
@@ -3356,7 +3417,6 @@ pub trait Entity: EntityEventSource + ErasedType + Send + Sync + 'static {
             return None;
         }
         self.base().clear_collision_flags();
-        self.refresh_fluid_contact();
 
         Some(MoveResult {
             final_position,
@@ -3441,7 +3501,6 @@ pub trait Entity: EntityEventSource + ErasedType + Send + Sync + 'static {
         };
         self.base()
             .set_movement_flags(movement_flags, ground_contact);
-        self.refresh_fluid_contact();
 
         if self.is_server_driven_movement()
             && Arc::clone(&self).apply_fall_damage_after_move(&result, &world)
@@ -3618,6 +3677,7 @@ pub trait Entity: EntityEventSource + ErasedType + Send + Sync + 'static {
         if on_ground && self.fall_distance() > 0.0 {
             self.send_landing_particles(world, on_state, pos);
         }
+
         if !self.is_in_water() && vertical_movement < 0.0 {
             self.base().accumulate_fall_distance(vertical_movement);
         }
