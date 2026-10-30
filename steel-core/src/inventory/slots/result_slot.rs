@@ -130,7 +130,6 @@ impl Slot for ResultSlot {
     }
 
     fn remove(&self, guard: &mut ContainerLockGuard, amount: i32) -> ItemStack {
-        // Count what vanilla removes; this slot always clears itself.
         if let Some(remove_count) = &self.remove_count {
             let count = self.get_item(guard).count();
             if count > 0 {
