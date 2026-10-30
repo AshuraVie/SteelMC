@@ -699,9 +699,6 @@ impl MenuBuilder {
 
     /// Adds a crafting result slot whose taken items award `ITEM_CRAFTED`.
     ///
-    /// Anvils and grindstones use [`result_slot`](Self::result_slot) instead,
-    /// matching vanilla's plain result slots.
-    ///
     /// # Panics
     /// Panics if the result container has no slot `0`, or that slot is already
     /// covered by another section of this menu.
