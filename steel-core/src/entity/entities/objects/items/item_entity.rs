@@ -633,6 +633,12 @@ impl Entity for ItemEntity {
             self.merge_with_neighbors(&world);
         }
 
+        // Vanilla item ticks refresh fluid interaction after movement and sync
+        // the result, which also emits water-entry splashes.
+        if self.update_fluid_interaction() {
+            self.mark_velocity_sync();
+        }
+
         // Check if velocity changed significantly -> set needsSync (vanilla: ItemEntity.tick lines 160-164)
         let new_movement = self.velocity();
         let diff = DVec3::new(
