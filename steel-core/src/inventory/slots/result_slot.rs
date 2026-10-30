@@ -21,9 +21,6 @@ use crate::{
 pub struct ResultSlot {
     handler: Arc<dyn ResultHandler + Send + Sync>,
     storage: SlotStorage,
-    /// Taken items are only counted for crafting results. Vanilla's anvil,
-    /// grindstone, and smithing results take their output without awarding
-    /// `ITEM_CRAFTED`.
     remove_count: Option<AtomicI32>,
 }
 
