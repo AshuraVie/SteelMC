@@ -1034,6 +1034,7 @@ pub trait Entity: EntityEventSource + ErasedType + Send + Sync + 'static {
         self.base().advance_base_tick_state();
         self.handle_portal();
         self.base().advance_powder_snow_contact_for_base_tick();
+        self.base().update_was_eye_in_water();
         self.update_fluid_interaction();
         self.update_swimming();
         if self
@@ -2266,11 +2267,14 @@ pub trait Entity: EntityEventSource + ErasedType + Send + Sync + 'static {
     }
 
     /// Scans current fluid contact and stores it on the entity base.
+    ///
+    /// `advance_eye_water_history` scans currents and records `wasTouchingWater` for
+    /// vanilla `updateFluidInteraction`.
     fn scan_and_store_fluid_contact(&self, advance_eye_water_history: bool) -> EntityFluidContact {
         let Some(world) = self.level() else {
             let contact = EntityFluidContact::default();
             if advance_eye_water_history {
-                self.base().set_fluid_contact_for_base_tick(contact);
+                self.base().set_fluid_interaction(contact);
             } else {
                 self.base().set_fluid_contact(contact);
             }
@@ -2294,7 +2298,7 @@ pub trait Entity: EntityEventSource + ErasedType + Send + Sync + 'static {
             )
         };
         if advance_eye_water_history {
-            self.base().set_fluid_contact_for_base_tick(contact);
+            self.base().set_fluid_interaction(contact);
         } else {
             self.base().set_fluid_contact(contact);
         }

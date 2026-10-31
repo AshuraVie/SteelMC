@@ -1684,14 +1684,17 @@ impl EntityBase {
         !state.first_tick && state.fluid_contact.lava_height() > 0.0
     }
 
-    /// Stores fluid contact for a vanilla base-tick refresh.
-    ///
-    /// Vanilla updates `wasEyeInWater` from the previous fluid interaction
-    /// before scanning the current one. `wasTouchingWater` tracks the current
-    /// scan so callers can compare it with the previous tick before refreshing.
-    pub fn set_fluid_contact_for_base_tick(&self, fluid_contact: EntityFluidContact) {
+    /// Records eye-water history from the cached fluid contact. Vanilla does
+    /// this only in `baseTick`, before refreshing fluid interaction.
+    pub fn update_was_eye_in_water(&self) {
         let mut state = self.state.lock();
         state.was_eye_in_water = state.fluid_contact.eye_in_water();
+    }
+
+    /// Stores fluid contact from a vanilla `updateFluidInteraction` refresh,
+    /// including `wasTouchingWater`.
+    pub fn set_fluid_interaction(&self, fluid_contact: EntityFluidContact) {
+        let mut state = self.state.lock();
         state.was_touching_water = fluid_contact.water_height() > 0.0;
         state.fluid_contact = fluid_contact;
     }
