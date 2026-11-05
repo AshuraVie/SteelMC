@@ -13,6 +13,7 @@ use steel_utils::types::Difficulty;
 use super::{
     LEADER_ZOMBIE_BONUS_ID, ZOMBIE_RANDOM_SPAWN_BONUS_ID, Zombie, ZombieEntity, spawn_as_baby_odds,
 };
+use crate::behavior::init_behaviors;
 use crate::entity::entities::{CowEntity, HuskEntity};
 use crate::entity::{
     AgeableMobGroupData, Entity, EntitySpawnReason, LivingEntity, Mob, SharedEntity,
@@ -485,6 +486,7 @@ fn zombie_baby_odds_are_five_percent_boundary() {
 #[test]
 fn husk_hunger_duration_scales_with_effective_difficulty() {
     init_vanilla_registry();
+    init_behaviors();
     let world_fixture = fresh_test_world("husk_hunger");
     let world = &world_fixture.world;
     insert_ready_full_chunk(world, ChunkPos::new(0, 0));
