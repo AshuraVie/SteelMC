@@ -2205,6 +2205,13 @@ impl LivingEntity for Player {
         result
     }
 
+    fn do_auto_attack_on_touch(&self, target: &SharedEntity) {
+        let Some(player) = self.get_world().players.get_by_entity_id(self.id()) else {
+            return;
+        };
+        let _ = player.attack(target);
+    }
+
     fn travel(&self, entity: &SharedEntity, input: DVec3) -> Option<MoveResult> {
         if self.is_passenger() {
             return self.default_travel(entity, input);

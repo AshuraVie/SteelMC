@@ -781,6 +781,22 @@ pub(crate) trait AbstractArrow: Projectile + Sized {
         self.arrow_base().weapon()
     }
 
+    fn find_hit_entity(&self, from: DVec3, to: DVec3) -> Option<EntityHitResult> {
+        self.arrow_find_hit_entity(from, to)
+    }
+
+    fn arrow_find_hit_entity(&self, from: DVec3, to: DVec3) -> Option<EntityHitResult> {
+        self.arrow_find_hit_entities(from, to)
+            .into_iter()
+            .min_by(|a, b| {
+                let a_distance = from.distance_squared(a.location);
+                let b_distance = from.distance_squared(b.location);
+                a_distance
+                    .partial_cmp(&b_distance)
+                    .unwrap_or(Ordering::Equal)
+            })
+    }
+
     fn find_hit_entities(&self, from: DVec3, to: DVec3) -> Vec<EntityHitResult> {
         self.arrow_find_hit_entities(from, to)
     }
@@ -891,6 +907,10 @@ pub(crate) trait AbstractArrow: Projectile + Sized {
     }
 
     fn arrow_pickup_item(&self) -> ItemStack {
+        self.arrow_base().pickup_item_stack()
+    }
+
+    fn arrow_pickup_item_stack_origin(&self) -> ItemStack {
         self.arrow_base().pickup_item_stack()
     }
 
