@@ -5,9 +5,10 @@ use std::sync::Arc;
 use item_in_use::EnchantedItemInUse;
 
 use steel_registry::enchantment_effect::{
-    DamageSourcePredicate, EnchantmentEffectComponent, EnchantmentEffectRequirements,
-    EnchantmentEntityEffect, EnchantmentEntityTarget, EnchantmentTarget, EntityPredicate,
-    EntityTypePredicate, EntityTypeSpecificPredicate, EntityVehiclePredicate, MobEffectSelection,
+    CrossbowChargingSounds, DamageSourcePredicate, EnchantmentEffectComponent,
+    EnchantmentEffectRequirements, EnchantmentEntityEffect, EnchantmentEntityTarget,
+    EnchantmentTarget, EntityPredicate, EntityTypePredicate, EntityTypeSpecificPredicate,
+    EntityVehiclePredicate, MobEffectSelection,
 };
 use steel_registry::entity_type::EntityTypeRef;
 use steel_registry::item_stack::ItemStack;
@@ -263,6 +264,43 @@ pub(crate) fn do_post_attack_effects_with_item_source(
     if let Some(attacker) = attacker {
         attacker.on_equipped_item_broken(source_item, EquipmentSlot::MainHand);
     }
+}
+
+pub(crate) fn modify_crossbow_charging_time(crossbow: &ItemStack, time: f32) -> f32 {
+    crossbow
+        .apply_unconditional_enchantment_value_effects(
+            EnchantmentEffectComponent::CrossbowChargeTime,
+            time,
+        )
+        .max(0.0)
+}
+
+/// Picks the highest-level enchantment's crossbow charging sounds.
+pub(crate) fn get_crossbow_charging_sounds(
+    crossbow: &ItemStack,
+) -> Option<&'static CrossbowChargingSounds> {
+    let enchantments = crossbow.get_enchantments()?;
+    let mut picked: Option<(&'static [CrossbowChargingSounds], i32)> = None;
+
+    for (key, level) in enchantments.iter() {
+        if *level == 0 {
+            continue;
+        }
+        let Some(enchantment) = REGISTRY.enchantments.by_key(key) else {
+            continue;
+        };
+        let sounds = enchantment.effects.crossbow_charging_sounds;
+        if sounds.is_empty() {
+            continue;
+        }
+        let level = *level as i32;
+        if picked.is_none_or(|(_, best)| best < level) {
+            picked = Some((sounds, level));
+        }
+    }
+
+    let (sounds, level) = picked?;
+    sounds.get((level as usize).min(sounds.len()) - 1)
 }
 
 pub(crate) fn process_ammo_use(weapon: &ItemStack, ammo: &ItemStack, amount: i32) -> i32 {
