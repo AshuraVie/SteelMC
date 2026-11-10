@@ -13,6 +13,7 @@ use steel_registry::enchantment_effect::{
 };
 use steel_registry::entity_type::EntityTypeRef;
 use steel_registry::item_stack::ItemStack;
+use steel_registry::sound_event::SoundEventRef;
 use steel_registry::{REGISTRY, RegistryExt, TaggedRegistryExt, vanilla_entities, vanilla_items};
 
 use crate::entity::damage::DamageSource;
@@ -240,6 +241,18 @@ pub(crate) fn do_post_attack_effects_with_item_source(
     source: Option<ItemStack>,
     context: &EnchantmentPostAttackContext<'_>,
 ) {
+    do_post_attack_effects_with_item_source_on_break(world, victim, source, context, None);
+}
+
+/// Applies post-attack effects and reports a broken item through
+/// `attackerless_on_break` when the damage source has no living attacker.
+pub(crate) fn do_post_attack_effects_with_item_source_on_break(
+    world: &World,
+    victim: &(impl Entity + ?Sized),
+    source: Option<ItemStack>,
+    context: &EnchantmentPostAttackContext<'_>,
+    attackerless_on_break: Option<&dyn Fn(&ItemStack)>,
+) {
     if let Some(living_victim) = victim.as_living_entity() {
         for slot in EquipmentSlot::ALL {
             let mut item = EnchantedItemInUse::Equipped {
@@ -263,12 +276,12 @@ pub(crate) fn do_post_attack_effects_with_item_source(
     let Some(mut source) = source else {
         return;
     };
-    let Some(attacker) = context
+    let attacker = context
         .attacker
-        .and_then(|entity| entity.as_living_entity())
-    else {
+        .and_then(|entity| entity.as_living_entity());
+    if attacker.is_none() && attackerless_on_break.is_none() {
         return;
-    };
+    }
 
     let source_item = source.item;
     let source_broke = apply_post_attack_effects(
@@ -278,9 +291,84 @@ pub(crate) fn do_post_attack_effects_with_item_source(
         EnchantmentTarget::Attacker,
         context,
     );
-    if source_broke {
-        attacker.on_equipped_item_broken(source_item, EquipmentSlot::MainHand);
+    if !source_broke {
+        return;
     }
+
+    if let Some(attacker) = attacker {
+        attacker.on_equipped_item_broken(source_item, EquipmentSlot::MainHand);
+    } else if let Some(on_break) = attackerless_on_break {
+        on_break(&source);
+    }
+}
+
+/// `remove_binomial` effects are skipped because Steel's value-effect pipeline has
+/// no thread-local random source; loyalty only uses linear effects.
+pub(crate) fn get_trident_return_to_owner_acceleration(
+    weapon: &ItemStack,
+    trident: &dyn Entity,
+) -> i32 {
+    let Some(enchantments) = weapon.get_enchantments() else {
+        return 0;
+    };
+
+    let mut value = 0.0_f32;
+    for (key, level) in enchantments.iter() {
+        if *level == 0 {
+            continue;
+        }
+        let Some(enchantment) = REGISTRY.enchantments.by_key(key) else {
+            continue;
+        };
+        let level = *level as i32;
+
+        for effect in enchantment
+            .effects
+            .value_effects(EnchantmentEffectComponent::TridentReturnAcceleration)
+        {
+            if !entity_requirements_match(effect.requirements, trident, level) {
+                continue;
+            }
+            if let Some(updated) = effect.effect.process_without_random(level, value) {
+                value = updated;
+            }
+        }
+    }
+
+    (value.floor() as i32).max(0)
+}
+
+pub(crate) fn get_trident_spin_attack_strength(trident: &ItemStack) -> f32 {
+    trident.apply_unconditional_enchantment_value_effects(
+        EnchantmentEffectComponent::TridentSpinAttackStrength,
+        0.0,
+    )
+}
+
+/// Picks the highest-level enchantment's trident sound.
+pub(crate) fn get_trident_sound(trident: &ItemStack) -> Option<SoundEventRef> {
+    let enchantments = trident.get_enchantments()?;
+    let mut picked: Option<(&'static [SoundEventRef], i32)> = None;
+
+    for (key, level) in enchantments.iter() {
+        if *level == 0 {
+            continue;
+        }
+        let Some(enchantment) = REGISTRY.enchantments.by_key(key) else {
+            continue;
+        };
+        let sounds = enchantment.effects.trident_sound;
+        if sounds.is_empty() {
+            continue;
+        }
+        let level = *level as i32;
+        if picked.is_none_or(|(_, best)| best < level) {
+            picked = Some((sounds, level));
+        }
+    }
+
+    let (sounds, level) = picked?;
+    sounds.get((level as usize).min(sounds.len()) - 1).copied()
 }
 
 pub(crate) fn process_ammo_use(weapon: &ItemStack, ammo: &ItemStack, amount: i32) -> i32 {

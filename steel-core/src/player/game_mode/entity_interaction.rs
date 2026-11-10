@@ -439,7 +439,13 @@ impl Player {
         }
 
         self.attack_visual_effects(entity, AttackVisualKind::Stab, magic_boost);
-        self.item_attack_interaction(target, attacking_item, &damage_source, damage_dealt);
+        self.item_attack_interaction(
+            target,
+            &attacking_item,
+            InteractionHand::MainHand,
+            &damage_source,
+            damage_dealt,
+        );
         self.set_last_hurt_mob(Some(target));
         self.cause_food_exhaustion(food_constants::EXHAUSTION_ATTACK);
         true
@@ -499,14 +505,34 @@ impl Player {
             return false;
         }
 
-        let attacking_item = self.weapon_item();
-        let (attack_damage, attack_speed, attack_knockback) = {
+        let main_hand_item = self.weapon_item();
+        let auto_spin_attack = self.is_auto_spin_attack();
+        let attacking_item = if auto_spin_attack {
+            self.living_base
+                .auto_spin_attack_item_stack()
+                .unwrap_or(main_hand_item)
+        } else {
+            main_hand_item
+        };
+        let attack_hand = if auto_spin_attack {
+            self.living_base
+                .auto_spin_attack_hand()
+                .unwrap_or(InteractionHand::MainHand)
+        } else {
+            InteractionHand::MainHand
+        };
+        let (attribute_damage, attack_speed, attack_knockback) = {
             let attributes = self.attributes().lock();
             (
                 attributes.required_value(vanilla_attributes::ATTACK_DAMAGE) as f32,
                 attributes.required_value(vanilla_attributes::ATTACK_SPEED),
                 attributes.required_value(vanilla_attributes::ATTACK_KNOCKBACK),
             )
+        };
+        let attack_damage = if auto_spin_attack {
+            self.living_base.auto_spin_attack_dmg()
+        } else {
+            attribute_damage
         };
         let attack_strength_delay = Self::attack_strength_delay_from_speed(attack_speed);
         let attack_strength_scale =
@@ -578,7 +604,13 @@ impl Player {
                 AttackVisualKind::melee(critical_attack, sweep_attack, full_strength_attack);
             self.attack_visual_effects(entity, visual_kind, magic_boost);
             self.set_last_hurt_mob(Some(target));
-            self.item_attack_interaction(target, attacking_item, &damage_source, true);
+            self.item_attack_interaction(
+                target,
+                &attacking_item,
+                attack_hand,
+                &damage_source,
+                true,
+            );
             self.damage_stats_and_hearts(entity, old_entity_living_health);
             self.cause_food_exhaustion(food_constants::EXHAUSTION_ATTACK);
         } else {
@@ -737,7 +769,8 @@ impl Player {
     fn item_attack_interaction(
         &self,
         target: &SharedEntity,
-        attacking_item: ItemStack,
+        attacking_item: &ItemStack,
+        attack_hand: InteractionHand,
         damage_source: &DamageSource,
         apply_to_target: bool,
     ) {
@@ -746,17 +779,21 @@ impl Player {
         let parent = entity.as_part_entity().and_then(PartEntity::parent);
         let hurt_target = parent.as_deref().unwrap_or(entity);
         let post_attack_context = EnchantmentPostAttackContext::new(target, damage_source);
-        let item_hurt_enemy = {
+        let (source_item, item_hurt_enemy) = {
             let mut inventory = self.inventory.lock();
-            inventory.mutate_item_in_hand(InteractionHand::MainHand, |stack| {
-                if stack.is_empty() {
-                    return false;
+            inventory.mutate_item_in_hand(attack_hand, |stack| {
+                if stack.is_empty() || stack.item() != attacking_item.item() {
+                    return (
+                        attacking_item.copy_with_count(attacking_item.count()),
+                        false,
+                    );
                 }
                 let behavior = ITEM_BEHAVIORS.get_behavior(stack.item());
                 if let Some(living_target) = hurt_target.as_living_entity() {
                     behavior.hurt_enemy(stack, living_target, self);
                 }
-                stack.get_weapon().is_some()
+                let source_item = stack.copy_with_count(stack.count());
+                (source_item, stack.get_weapon().is_some())
             })
         };
 
@@ -765,7 +802,7 @@ impl Player {
             enchantment_helper::do_post_attack_effects_with_item_source(
                 &world,
                 entity,
-                Some(attacking_item),
+                Some(source_item),
                 &post_attack_context,
             );
         }
@@ -779,8 +816,8 @@ impl Player {
         };
         let has_infinite_materials = self.has_infinite_materials();
         let mut inventory = self.inventory.lock();
-        inventory.mutate_item_in_hand(InteractionHand::MainHand, |stack| {
-            if stack.is_empty() {
+        inventory.mutate_item_in_hand(attack_hand, |stack| {
+            if stack.is_empty() || stack.item() != attacking_item.item() {
                 return;
             }
             let behavior = ITEM_BEHAVIORS.get_behavior(stack.item());
