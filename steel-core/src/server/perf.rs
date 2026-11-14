@@ -712,6 +712,8 @@ impl ChunkMapMetrics {
 
 #[cfg(test)]
 mod tests {
+    use std::{env, process};
+
     use super::*;
 
     fn timings(elapsed_ms: u64, entity_ms: u64, tick_chunks_ms: u64) -> WorldGameTickTimings {
@@ -785,8 +787,7 @@ mod tests {
 
     #[test]
     fn saving_reports_with_the_same_start_time_keeps_both() {
-        let directory =
-            std::env::temp_dir().join(format!("steel-perf-save-{}", std::process::id()));
+        let directory = env::temp_dir().join(format!("steel-perf-save-{}", process::id()));
         if let Err(error) = fs::remove_dir_all(&directory) {
             assert_eq!(error.kind(), io::ErrorKind::NotFound);
         }

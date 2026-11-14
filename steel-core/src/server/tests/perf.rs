@@ -1,6 +1,6 @@
 //! End-to-end coverage for `/perf start` → JSON report persistence.
 
-use std::{path::Path, sync::Arc, time::Duration};
+use std::{env::consts::OS, path::Path, sync::Arc, time::Duration};
 
 use tokio::{
     fs,
@@ -55,7 +55,7 @@ fn perf_start_stop_writes_a_json_report() {
 
         let report = wait_for_report(&results_dir).await;
         assert_eq!(report["ticks"], 1);
-        assert_eq!(report["system"]["operating_system"], std::env::consts::OS);
+        assert_eq!(report["system"]["operating_system"], OS);
         assert_eq!(
             report["server"]["view_distance"],
             server.config.view_distance
