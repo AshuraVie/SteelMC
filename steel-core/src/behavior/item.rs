@@ -67,7 +67,7 @@ pub trait ProjectileWeaponItem: Send + Sync {
     }
 
     fn is_supported_projectile(&self, stack: &ItemStack) -> bool {
-        stack.item.has_tag(&ItemTag::ARROWS)
+        stack.item().has_tag(&ItemTag::ARROWS)
     }
 
     fn get_default_projectile_range(&self) -> i32;

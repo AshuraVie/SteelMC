@@ -44,7 +44,7 @@ pub(super) fn can_place_on(item: &ItemStack, world: &World, pos: BlockPos) -> bo
         .is_some_and(|predicate| matches(predicate, world, pos))
 }
 
-fn matches(predicate: &AdventureModePredicate, world: &World, pos: BlockPos) -> bool {
+pub(crate) fn matches(predicate: &AdventureModePredicate, world: &World, pos: BlockPos) -> bool {
     predicate
         .predicates()
         .iter()

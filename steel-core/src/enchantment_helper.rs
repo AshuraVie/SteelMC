@@ -216,7 +216,7 @@ pub(crate) fn do_post_attack_effects_from_item(
 pub(crate) fn do_post_attack_effects_with_item_source(
     world: &World,
     victim: &dyn Entity,
-    source: &ItemStack,
+    source: Option<&ItemStack>,
     context: &EnchantmentPostAttackContext<'_>,
 ) {
     if let Some(living_victim) = victim.as_living_entity() {
@@ -240,6 +240,9 @@ pub(crate) fn do_post_attack_effects_with_item_source(
         }
     }
 
+    let Some(source) = source else {
+        return;
+    };
     let attacker = context
         .attacker
         .and_then(|entity| entity.as_living_entity());
@@ -1549,7 +1552,12 @@ mod tests {
         let context = EnchantmentPostAttackContext::new(&victim_entity, &damage_source);
         let source = ItemStack::empty();
 
-        do_post_attack_effects_with_item_source(test_world(), victim.as_ref(), &source, &context);
+        do_post_attack_effects_with_item_source(
+            test_world(),
+            victim.as_ref(),
+            Some(&source),
+            &context,
+        );
 
         let mut chestplate_broke = false;
         victim.with_equipment_slot(EquipmentSlot::Chest, &mut |stack| {

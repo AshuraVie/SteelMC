@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use super::{
-    ATTACK_RANGE_BUFFER, CSetEntityMotion, ClipBlockShape, ClipFluid, DVec3, DamageSource,
-    DamageType, ENTITY_INTERACTION_RANGE_BUFFER, EnchantmentDamageContext,
+    ATTACK_RANGE_BUFFER, BlockCollisionContext, CSetEntityMotion, ClipBlockShape, ClipFluid, DVec3,
+    DamageSource, DamageType, ENTITY_INTERACTION_RANGE_BUFFER, EnchantmentDamageContext,
     EnchantmentPostAttackContext, Entity, EntityTypeRef, GameType, ITEM_BEHAVIORS, InteractionHand,
     InteractionResult, InventoryAccess, ItemStack, LivingEntity, PiercingWeapon, Player, SAttack,
     SInteract, SharedEntity, SoundEventHolder, SoundEventRef, TextComponent, TranslatedMessage,
@@ -253,7 +253,13 @@ impl Player {
         let movement_extension = self.known_movement().dot(look).max(0.0);
         let mut to = eye_position + look * (max_reach + movement_extension);
 
-        let block_hit = world.clip(eye_position, to, ClipBlockShape::Collider, ClipFluid::None);
+        let block_hit = world.clip(
+            eye_position,
+            to,
+            ClipBlockShape::Collider,
+            ClipFluid::None,
+            BlockCollisionContext::entity(self.position().y, self.is_descending()),
+        );
         if !block_hit.is_miss() {
             to = block_hit.location;
             if eye_position.distance_squared(to) < eye_position.distance_squared(from) {
@@ -271,8 +277,15 @@ impl Player {
             })
             .into_iter()
             .filter_map(|entity| {
-                piercing_ray_hit_t(world, entity.bounding_box(), from, to, hitbox_margin)
-                    .map(|hit_t| (hit_t, entity))
+                piercing_ray_hit_t(
+                    world,
+                    entity.bounding_box(),
+                    from,
+                    to,
+                    hitbox_margin,
+                    BlockCollisionContext::entity(self.position().y, self.is_descending()),
+                )
+                .map(|hit_t| (hit_t, entity))
             })
             .collect::<Vec<_>>();
         hits.sort_by(|(left, _), (right, _)| left.total_cmp(right));
@@ -519,7 +532,7 @@ impl Player {
             enchantment_helper::do_post_attack_effects_with_item_source(
                 &world,
                 entity,
-                &source_item,
+                Some(&source_item),
                 &post_attack_context,
             );
         }

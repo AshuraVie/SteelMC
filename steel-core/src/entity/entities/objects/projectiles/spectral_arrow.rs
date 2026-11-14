@@ -15,6 +15,7 @@ use steel_registry::item_stack::ItemStack;
 use steel_registry::vanilla_entity_data::{AbstractArrowEntityData, SpectralArrowEntityData};
 use steel_registry::{sound_events, vanilla_entities, vanilla_items, vanilla_mob_effects};
 use steel_utils::locks::SyncMutex;
+use steel_utils::nbt::NbtValueInput as _;
 use steel_utils::{BlockPos, DowncastType, DowncastTypeKey};
 
 use crate::enchantment_helper;
@@ -213,6 +214,10 @@ impl Entity for SpectralArrowEntity {
         self.arrow_player_touch(player);
     }
 
+    fn with_weapon_item(&self, visitor: &mut dyn FnMut(Option<&ItemStack>)) {
+        self.arrow_with_weapon_item(visitor);
+    }
+
     fn save_additional(&self, nbt: &mut NbtCompound) {
         self.save_projectile(nbt);
         self.arrow_save(nbt);
@@ -222,7 +227,7 @@ impl Entity for SpectralArrowEntity {
     fn load_additional(&self, nbt: BorrowedNbtCompoundView<'_, '_>) {
         self.load_projectile(nbt);
         self.arrow_load(nbt);
-        *self.duration.lock() = nbt.int("Duration").unwrap_or(DEFAULT_DURATION);
+        *self.duration.lock() = nbt.int_value("Duration").unwrap_or(DEFAULT_DURATION);
     }
 }
 
@@ -253,6 +258,10 @@ impl Projectile for SpectralArrowEntity {
 
     fn on_hit_block(self: Arc<Self>, hit: &ClipHitResult) {
         self.arrow_on_hit_block(hit);
+    }
+
+    fn should_bounce_on_world_border(&self) -> bool {
+        self.arrow_should_bounce_on_world_border()
     }
 }
 

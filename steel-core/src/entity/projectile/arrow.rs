@@ -20,6 +20,7 @@ use steel_registry::vanilla_entity_data::AbstractArrowEntityData;
 use steel_registry::vanilla_entity_type_tags::EntityTypeTag;
 use steel_registry::{REGISTRY, TaggedRegistryExt as _, sound_events, vanilla_damage_types};
 use steel_utils::locks::SyncMutex;
+use steel_utils::nbt::NbtValueInput as _;
 use steel_utils::{BlockPos, BlockStateId, WorldAabb};
 
 use crate::behavior::{BLOCK_BEHAVIORS, BlockCollisionContext};
@@ -31,6 +32,7 @@ use crate::inventory::container::Container as _;
 use crate::physics::collision::CollisionWorld as _;
 use crate::physics::{MoveResult, MoverType, WorldCollisionProvider};
 use crate::player::Player;
+use crate::portal::PortalProcessor;
 use crate::world::{ClipBlockShape, ClipFluid, ClipHitResult, World};
 
 use super::{
@@ -401,6 +403,7 @@ pub(crate) trait AbstractArrow: Projectile + Sized {
                 original_position + movement,
                 ClipBlockShape::Collider,
                 ClipFluid::None,
+                BlockCollisionContext::entity(self.position().y, self.is_descending()),
             );
             Arc::clone(&self).step_move_and_hit(block_hit);
         } else {
@@ -475,8 +478,13 @@ pub(crate) trait AbstractArrow: Projectile + Sized {
                 return;
             }
             self.apply_effects_from_blocks_between(initial_position, next_location);
-            // TODO: vanilla handles projectile portal entry here; projectile
-            // portal processing is not implemented yet.
+            if self
+                .base()
+                .portal_process()
+                .is_some_and(PortalProcessor::is_inside_portal_this_tick)
+            {
+                self.handle_portal();
+            }
 
             if entities_hit.is_empty() {
                 if self.is_alive() && !block_hit.miss {
@@ -484,12 +492,14 @@ pub(crate) trait AbstractArrow: Projectile + Sized {
                         location: block_hit.location,
                         hit: block_hit,
                     });
+                    self.mark_velocity_sync();
                 }
                 return;
             }
 
             if self.is_alive() && !self.no_physics() {
                 let deflection = Arc::clone(&self).hit_targets_or_deflect_self(entities_hit);
+                self.mark_velocity_sync();
                 if self.pierce_level() > 0 && deflection == ProjectileDeflection::None {
                     continue;
                 }
@@ -588,7 +598,6 @@ pub(crate) trait AbstractArrow: Projectile + Sized {
         self.arrow_base().clear_ignored();
     }
 
-    #[expect(clippy::too_many_lines, reason = "keeps the hit sequence in order")]
     fn arrow_on_hit_entity(self: Arc<Self>, entity: &SharedEntity, _location: DVec3) {
         let Some(world) = entity.level() else {
             return;
@@ -603,7 +612,8 @@ pub(crate) trait AbstractArrow: Projectile + Sized {
             .with_direct_entity(direct_entity)
             .with_causing_entity(causing_entity);
 
-        if let Some(weapon_item) = self.get_weapon_item() {
+        let weapon_item = self.get_weapon_item();
+        if let Some(weapon_item) = weapon_item.as_ref() {
             let context = EnchantmentDamageContext::new(
                 entity.entity_type(),
                 owner.as_ref().map(|owner| owner.entity_type()),
@@ -611,7 +621,7 @@ pub(crate) trait AbstractArrow: Projectile + Sized {
                 &damage_source,
             );
             arrow_damage = f64::from(enchantment_helper::modify_damage(
-                &weapon_item,
+                weapon_item,
                 &context,
                 arrow_damage as f32,
             ));
@@ -642,10 +652,8 @@ pub(crate) trait AbstractArrow: Projectile + Sized {
         }
 
         let remaining_fire_ticks = entity.remaining_fire_ticks();
-        if self.is_on_fire()
-            && let Some(living) = entity.as_living_entity()
-        {
-            living.ignite_for_ticks(FIRE_TICKS_ON_HIT);
+        if self.is_on_fire() {
+            entity.ignite_for_ticks(FIRE_TICKS_ON_HIT);
         }
 
         if entity.hurt(&world, &damage_source, damage as f32) {
@@ -656,15 +664,13 @@ pub(crate) trait AbstractArrow: Projectile + Sized {
 
                 self.arrow_do_knockback(mob, &damage_source);
 
-                if let Some(weapon_item) = self.get_weapon_item() {
-                    let context = EnchantmentPostAttackContext::new(entity, &damage_source);
-                    enchantment_helper::do_post_attack_effects_with_item_source(
-                        &world,
-                        entity.as_ref(),
-                        &weapon_item,
-                        &context,
-                    );
-                }
+                let context = EnchantmentPostAttackContext::new(entity, &damage_source);
+                enchantment_helper::do_post_attack_effects_with_item_source(
+                    &world,
+                    entity.as_ref(),
+                    weapon_item.as_ref(),
+                    &context,
+                );
 
                 Arc::clone(&self).arrow_do_post_hurt_effects(mob);
                 if entity.as_player().is_some()
@@ -728,10 +734,14 @@ pub(crate) trait AbstractArrow: Projectile + Sized {
         let knockback_resistance = (1.0 - mob.knockback_resistance()).max(0.0);
         let scale = f64::from(knockback) * KNOCKBACK_VELOCITY_SCALE * knockback_resistance;
         let velocity = self.velocity();
-        let movement = DVec3::new(velocity.x, 0.0, velocity.z).normalize_or_zero() * scale;
-        if movement.length_squared() > 0.0 {
-            mob.push_impulse(DVec3::new(movement.x, KNOCKBACK_LIFT, movement.z));
+        let horizontal = DVec3::new(velocity.x, 0.0, velocity.z);
+        let length = horizontal.length();
+        if length < f64::from(1.0e-5_f32) {
+            return;
         }
+
+        let movement = horizontal / length * scale;
+        mob.push_impulse(DVec3::new(movement.x, KNOCKBACK_LIFT, movement.z));
     }
 
     fn arrow_do_post_hurt_effects(self: Arc<Self>, _mob: &dyn LivingEntity) {}
@@ -755,11 +765,8 @@ pub(crate) trait AbstractArrow: Projectile + Sized {
         // `EnchantmentHelper.onHitBlock` is ported.
 
         let movement = self.velocity();
-        let offset = DVec3::new(
-            movement.x.signum(),
-            movement.y.signum(),
-            movement.z.signum(),
-        ) * GROUND_HIT_OFFSET;
+        let offset =
+            movement.map(|axis| if axis == 0.0 { axis } else { axis.signum() }) * GROUND_HIT_OFFSET;
         if let Err(error) = self.try_set_position(self.position() - offset) {
             log::debug!(
                 "Rejected arrow ground placement for entity {}: {error}",
@@ -801,6 +808,7 @@ pub(crate) trait AbstractArrow: Projectile + Sized {
             search_box,
             compute_margin(self.tick_count()),
             |entity| self.can_hit_entity(entity),
+            BlockCollisionContext::entity(self.position().y, self.is_descending()),
             false,
             false,
         )
@@ -837,10 +845,10 @@ pub(crate) trait AbstractArrow: Projectile + Sized {
     fn arrow_load(&self, nbt: BorrowedNbtCompoundView<'_, '_>) {
         let arrow_base = self.arrow_base();
         arrow_base.set_last_state(nbt.compound("inBlockState").and_then(block_state_nbt::load));
-        arrow_base.set_shake_time(i32::from(nbt.byte("shake").unwrap_or(0)) & 255);
-        arrow_base.set_base_damage(nbt.double("damage").unwrap_or(DEFAULT_BASE_DAMAGE));
+        arrow_base.set_shake_time(i32::from(nbt.byte_value("shake").unwrap_or(0)) & 255);
+        arrow_base.set_base_damage(nbt.double_value("damage").unwrap_or(DEFAULT_BASE_DAMAGE));
         arrow_base.set_pickup(
-            nbt.byte("pickup")
+            nbt.byte_value("pickup")
                 .map_or(ArrowPickup::Disallowed, ArrowPickup::from_legacy_byte),
         );
         arrow_base.set_sound_event(
@@ -859,10 +867,10 @@ pub(crate) trait AbstractArrow: Projectile + Sized {
                 .and_then(|compound| ItemStack::from_borrowed_compound(&compound)),
         );
 
-        self.set_in_ground(nbt.byte("inGround").is_some_and(|value| value != 0));
-        self.set_crit_arrow(nbt.byte("crit").is_some_and(|value| value != 0));
-        self.set_pierce_level(nbt.byte("PierceLevel").unwrap_or(0));
-        arrow_base.set_life(i32::from(nbt.short("life").unwrap_or(0)));
+        self.set_in_ground(nbt.byte_value("inGround").is_some_and(|value| value != 0));
+        self.set_crit_arrow(nbt.byte_value("crit").is_some_and(|value| value != 0));
+        self.set_pierce_level(nbt.byte_value("PierceLevel").unwrap_or(0));
+        arrow_base.set_life(i32::from(nbt.short_value("life").unwrap_or(0)));
     }
 
     fn arrow_player_touch(self: Arc<Self>, player: &Arc<Player>) {
@@ -884,7 +892,8 @@ pub(crate) trait AbstractArrow: Projectile + Sized {
             ArrowPickup::Disallowed => false,
             ArrowPickup::Allowed => {
                 let mut item = self.arrow_pickup_item();
-                player.inventory.lock().add(&mut item)
+                !item.is_empty()
+                    && (player.inventory.lock().add(&mut item) || player.has_infinite_materials())
             }
             ArrowPickup::CreativeOnly => player.has_infinite_materials(),
         }
@@ -950,6 +959,15 @@ pub(crate) trait AbstractArrow: Projectile + Sized {
 
     fn arrow_water_inertia(&self) -> f32 {
         DEFAULT_WATER_INERTIA
+    }
+
+    fn arrow_should_bounce_on_world_border(&self) -> bool {
+        true
+    }
+
+    fn arrow_with_weapon_item(&self, visitor: &mut dyn FnMut(Option<&ItemStack>)) {
+        let weapon = self.arrow_base().weapon();
+        visitor(weapon.as_ref());
     }
 
     fn arrow_is_attackable(&self) -> bool {

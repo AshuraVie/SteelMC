@@ -472,7 +472,7 @@ impl Player {
             }
         }
 
-        for slot in 0..PlayerInventory::INVENTORY_SIZE {
+        for slot in 0..inventory.get_container_size() {
             let stack = inventory.get_item(slot);
             if weapon.is_supported_projectile(stack) {
                 return Some((stack.clone(), Some(slot)));
@@ -488,8 +488,8 @@ impl Player {
     /// inventory menu.
     pub fn take(&self, entity: &dyn Entity, org_count: i32) {
         if !entity.is_removed() && entity.is_takeable() {
-            self.get_world().broadcast_to_nearby(
-                ChunkPos::from_entity_pos(entity.position()),
+            self.get_world().broadcast_to_entity_trackers(
+                entity.id(),
                 CTakeItemEntity::new(entity.id(), self.id(), org_count),
                 None,
             );
@@ -1875,6 +1875,7 @@ impl LivingEntity for Player {
         self.reset_vehicle_movement_for_tick();
 
         self.default_tick();
+        self.tick_stuck_arrow_count();
         self.detect_equipment_updates();
         if !self.is_removed() {
             self.ai_step(entity);
@@ -2258,7 +2259,7 @@ impl LivingEntity for Player {
 
     fn on_equipped_item_broken(&self, item: ItemRef, slot: EquipmentSlot) {
         self.broadcast_entity_event(slot.into());
-        self.refresh_equipment_attribute_modifiers(slot);
+        self.living_base.remove_equipment_attribute_modifiers(slot);
         self.award_stat(&vanilla_stat_types::ITEM_BROKEN, item);
     }
 }

@@ -17,8 +17,11 @@ use std::sync::{Arc, Weak};
 use glam::DVec3;
 use simdnbt::borrow::NbtCompound as BorrowedNbtCompoundView;
 use simdnbt::owned::NbtCompound;
+use simdnbt::{FromNbtTag as _, ToNbtTag as _};
 use steel_math::{DEG_TO_RAD, DEGREE_180, DEGREE_360, trig};
 use steel_registry::blocks::block_state_ext::BlockStateExt as _;
+use steel_registry::data_components::AdventureModePredicate;
+use steel_registry::data_components::vanilla_components::CAN_BREAK;
 use steel_registry::item_stack::ItemStack;
 use steel_registry::vanilla_entity_type_tags::EntityTypeTag;
 use steel_registry::vanilla_game_rules::{MOB_GRIEFING, PROJECTILES_CAN_BREAK_BLOCKS};
@@ -26,14 +29,16 @@ use steel_registry::{REGISTRY, TaggedRegistryExt as _, vanilla_game_events};
 use steel_utils::axis::Axis;
 use steel_utils::locks::SyncMutex;
 use steel_utils::nbt::NbtValueInput as _;
+use steel_utils::types::GameType;
 use steel_utils::{BlockPos, WorldAabb};
 use uuid::Uuid;
 
-use crate::behavior::BLOCK_BEHAVIORS;
+use crate::behavior::{BLOCK_BEHAVIORS, BlockCollisionContext};
 use crate::enchantment_helper;
 use crate::entity::damage::DamageSource;
 use crate::entity::{Entity, EntityReference, LivingEntity, SharedEntity};
 use crate::player::Player;
+use crate::player::game_mode::adventure_mode;
 use crate::world::game_event::GameEventContext;
 use crate::world::{ClipBlockShape, ClipFluid, ClipHitResult, World};
 
@@ -195,6 +200,7 @@ struct ProjectileState {
     left_owner: bool,
     left_owner_checked: bool,
     has_been_shot: bool,
+    can_break: Option<AdventureModePredicate>,
     last_deflected_by: Option<Weak<dyn Entity>>,
 }
 
@@ -213,6 +219,7 @@ impl ProjectileBase {
                 left_owner: false,
                 left_owner_checked: false,
                 has_been_shot: false,
+                can_break: None,
                 last_deflected_by: None,
             }),
         }
@@ -335,13 +342,46 @@ pub trait Projectile: Entity + ProjectileEventSource {
         world.get_game_rule(&MOB_GRIEFING)
     }
 
-    /// Returns whether this projectile type is allowed to break the blocks
-    /// it hits, per the mobGriefing-gated `projectilesCanBreakBlocks` game rule.
-    fn may_break(&self, world: &World) -> bool {
+    /// Returns whether this projectile type is allowed to break the block at
+    /// `pos`, per the `projectilesCanBreakBlocks` game rule and the adventure
+    /// `can_break` predicate copied from the item that spawned it.
+    fn may_break(&self, world: &World, pos: BlockPos) -> bool {
         REGISTRY
             .entity_types
             .is_in_tag(self.entity_type(), &EntityTypeTag::IMPACT_PROJECTILES)
             && world.get_game_rule(&PROJECTILES_CAN_BREAK_BLOCKS)
+            && self.can_break_block_in_adventure_mode(world, pos)
+    }
+
+    /// Mirrors vanilla `Projectile.canBreakBlockInAdventureMode`.
+    fn can_break_block_in_adventure_mode(&self, world: &World, pos: BlockPos) -> bool {
+        let owner = self.get_owner();
+        let restricted = (owner.is_some() || world.default_gamemode() == GameType::Adventure)
+            && !owner
+                .as_ref()
+                .and_then(|owner| owner.as_player())
+                .is_some_and(|player| player.game_mode() != GameType::Adventure);
+        if !restricted {
+            return true;
+        }
+
+        self.can_break_block(world, pos)
+    }
+
+    /// Tests only the `can_break` predicate copied from the spawn stack,
+    /// mirroring `ItemStack.canBreakBlockInAdventureMode`.
+    fn can_break_block(&self, world: &World, pos: BlockPos) -> bool {
+        self.projectile_base()
+            .state
+            .lock()
+            .can_break
+            .as_ref()
+            .is_some_and(|predicate| adventure_mode::matches(predicate, world, pos))
+    }
+
+    /// Applies projectile-specific implicit item components.
+    fn projectile_apply_implicit_item_components(&self, item_stack: &ItemStack) {
+        self.projectile_base().state.lock().can_break = item_stack.get(CAN_BREAK).cloned();
     }
 
     /// Returns whether `entity` is this projectile's owner.
@@ -545,8 +585,13 @@ pub trait Projectile: Entity + ProjectileEventSource {
         }
         let to = from + delta;
 
-        let block_hit =
-            world.clip_including_border(from, to, ClipBlockShape::Collider, ClipFluid::None);
+        let block_hit = world.clip_including_border(
+            from,
+            to,
+            ClipBlockShape::Collider,
+            ClipFluid::None,
+            BlockCollisionContext::entity(self.position().y, self.is_descending()),
+        );
         let entity_end = if block_hit.is_miss() {
             to
         } else {
@@ -762,7 +807,7 @@ pub trait Projectile: Entity + ProjectileEventSource {
     /// projectile.
     fn on_item_break(&self, _item: &ItemStack) {}
 
-    /// Saves `Owner`, `LeftOwner`, and `HasBeenShot`.
+    /// Saves `Owner`, `LeftOwner`, `HasBeenShot`, and `can_break`.
     fn save_projectile(&self, nbt: &mut NbtCompound) {
         let state = self.projectile_base().state.lock();
         if let Some(owner) = &state.owner {
@@ -772,9 +817,12 @@ pub trait Projectile: Entity + ProjectileEventSource {
             nbt.insert("LeftOwner", 1i8);
         }
         nbt.insert("HasBeenShot", i8::from(state.has_been_shot));
+        if let Some(can_break) = &state.can_break {
+            nbt.insert("can_break", can_break.clone().to_nbt_tag());
+        }
     }
 
-    /// Loads `Owner`, `LeftOwner`, and `HasBeenShot`.
+    /// Loads `Owner`, `LeftOwner`, `HasBeenShot`, and `can_break`.
     fn load_projectile(&self, nbt: BorrowedNbtCompoundView<'_, '_>) {
         let mut state = self.projectile_base().state.lock();
         state.owner = EntityReference::read(&nbt, "Owner");
@@ -782,6 +830,9 @@ pub trait Projectile: Entity + ProjectileEventSource {
         state.has_been_shot = nbt
             .byte_value("HasBeenShot")
             .is_some_and(|value| value != 0);
+        state.can_break = nbt
+            .get("can_break")
+            .and_then(AdventureModePredicate::from_nbt_tag);
     }
 }
 
@@ -856,7 +907,7 @@ pub fn spawn_projectile(
     };
     shoot(projectile_capability);
 
-    if let Err(error) = world.try_add_entity(Arc::clone(&projectile)) {
+    if let Err(error) = world.try_add_entity_or_defer(Arc::clone(&projectile)) {
         log::debug!("failed to spawn projectile: {error}");
         return None;
     }
@@ -921,8 +972,13 @@ pub fn get_hit_result_on_view_vector(
     let delta = source.look_angle() * distance;
     let to = from + delta;
 
-    let block_hit =
-        world.clip_including_border(from, to, ClipBlockShape::Collider, ClipFluid::None);
+    let block_hit = world.clip_including_border(
+        from,
+        to,
+        ClipBlockShape::Collider,
+        ClipFluid::None,
+        BlockCollisionContext::entity(position.y, source.is_descending()),
+    );
     let entity_end = if block_hit.is_miss() {
         to
     } else {
@@ -994,6 +1050,7 @@ pub(crate) fn get_many_entity_hits(
     search_box: WorldAabb,
     margin: f64,
     predicate: impl Fn(&dyn Entity) -> bool,
+    collision_context: BlockCollisionContext,
     include_from_entity: bool,
     project_surface_hit_location: bool,
 ) -> Vec<EntityHitResult> {
@@ -1029,6 +1086,7 @@ pub(crate) fn get_many_entity_hits(
             towards_target,
             ClipBlockShape::Collider,
             ClipFluid::None,
+            collision_context,
         );
         if !block_hit.is_miss() {
             towards_target = block_hit.location;
@@ -1200,10 +1258,18 @@ pub(crate) fn lerp_rotation(mut rot_old: f32, rot: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Cursor;
+
+    use simdnbt::borrow::read_compound;
+    use simdnbt::owned::NbtCompound;
     use steel_registry::{
+        RegistryHolderSet,
+        blocks::BlockRef,
         blocks::properties::{BlockStateProperties, Tilt},
+        data_component_predicate::DataComponentMatchers,
+        data_components::{AdventureModePredicate, BlockPredicate, vanilla_components::CAN_BREAK},
         entity_type::EntityTypeRef,
-        init_vanilla_registry, vanilla_blocks, vanilla_entities,
+        init_vanilla_registry, vanilla_blocks, vanilla_entities, vanilla_items,
     };
     use steel_utils::{
         BlockPos, ChunkPos, Direction,
@@ -1363,8 +1429,80 @@ mod tests {
         );
         let ender_pearl = OwnerCollisionProjectile::new(2, DVec3::ZERO);
 
-        assert!(firework.may_break(test_world()));
-        assert!(!ender_pearl.may_break(test_world()));
+        assert!(firework.may_break(test_world(), BlockPos::ZERO));
+        assert!(!ender_pearl.may_break(test_world(), BlockPos::ZERO));
+    }
+
+    fn adventure_predicate_for(block: BlockRef) -> AdventureModePredicate {
+        AdventureModePredicate::new(vec![BlockPredicate::new(
+            Some(RegistryHolderSet::Direct(vec![block])),
+            None,
+            None,
+            DataComponentMatchers::ANY,
+        )])
+        .expect("one block predicate is valid")
+    }
+
+    #[test]
+    fn projectile_copies_and_round_trips_can_break_component() {
+        init_vanilla_registry();
+
+        let predicate = adventure_predicate_for(&vanilla_blocks::STONE);
+        let mut stack = ItemStack::new(&vanilla_items::ARROW);
+        stack.set(CAN_BREAK, predicate.clone());
+
+        let projectile = OwnerCollisionProjectile::new(1, DVec3::ZERO);
+        projectile.projectile_apply_implicit_item_components(&stack);
+        assert_eq!(
+            projectile.projectile_base().state.lock().can_break.as_ref(),
+            Some(&predicate)
+        );
+
+        let mut nbt = NbtCompound::new();
+        projectile.save_projectile(&mut nbt);
+        let mut bytes = Vec::new();
+        nbt.write(&mut bytes);
+        let borrowed = read_compound(&mut Cursor::new(&bytes)).expect("borrow saved projectile");
+        let loaded = OwnerCollisionProjectile::new(2, DVec3::ZERO);
+        loaded.load_projectile((&borrowed).into());
+        assert_eq!(
+            loaded.projectile_base().state.lock().can_break.as_ref(),
+            Some(&predicate)
+        );
+    }
+
+    #[test]
+    fn adventure_may_break_requires_matching_can_break_predicate() {
+        init_vanilla_registry();
+        init_behaviors();
+
+        let world_fixture = fresh_test_world("projectile_adventure_can_break");
+        let world = &world_fixture.world;
+        world.set_default_gamemode(GameType::Adventure);
+        let pos = BlockPos::new(0, 64, 0);
+        insert_ready_full_chunk(world, ChunkPos::from_block_pos(pos));
+        assert!(world.set_block(
+            pos,
+            vanilla_blocks::STONE.default_state(),
+            UpdateFlags::UPDATE_ALL,
+        ));
+
+        let firework = FireworkRocketEntity::new(
+            &vanilla_entities::FIREWORK_ROCKET,
+            1,
+            DVec3::new(0.5, 64.5, 0.5),
+            Weak::new(),
+        );
+        assert!(!firework.may_break(world, pos));
+
+        let mut stack = ItemStack::new(&vanilla_items::ARROW);
+        stack.set(CAN_BREAK, adventure_predicate_for(&vanilla_blocks::DIRT));
+        firework.projectile_apply_implicit_item_components(&stack);
+        assert!(!firework.may_break(world, pos));
+
+        stack.set(CAN_BREAK, adventure_predicate_for(&vanilla_blocks::STONE));
+        firework.projectile_apply_implicit_item_components(&stack);
+        assert!(firework.may_break(world, pos));
     }
 
     #[test]

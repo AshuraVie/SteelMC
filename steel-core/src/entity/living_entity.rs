@@ -4,7 +4,9 @@ use steel_registry::stat::vanilla_stat_types;
 use steel_registry::{DyeColor, vanilla_custom_stats};
 
 use super::*;
-use crate::behavior::{BLOCK_BEHAVIORS, InventoryTickContext, MOB_EFFECT_BEHAVIORS};
+use crate::behavior::{
+    BLOCK_BEHAVIORS, BlockCollisionContext, InventoryTickContext, MOB_EFFECT_BEHAVIORS,
+};
 use crate::entity::consume_effect::apply_consume_effect;
 use crate::entity::damage::RecentDamageSource;
 use crate::entity::pushing::EntityPush;
@@ -659,7 +661,15 @@ pub trait LivingEntity: Entity {
             return false;
         }
 
-        world.clip(start, end, block_shape, fluid).is_miss()
+        world
+            .clip(
+                start,
+                end,
+                block_shape,
+                fluid,
+                BlockCollisionContext::entity(self.position().y, self.is_descending()),
+            )
+            .is_miss()
     }
 
     /// Returns vanilla base living-entity invulnerability.
@@ -1926,9 +1936,13 @@ pub trait LivingEntity: Entity {
     fn handle_extra_items_created_on_use(&self, _extra: ItemStack) {}
 
     /// Called after an equipped item breaks.
+    ///
+    /// The broken stack may already have been replaced in the slot, so remove
+    /// the slot's installed modifiers instead of re-reading the hand item.
     fn on_equipped_item_broken(&self, _item: ItemRef, slot: EquipmentSlot) {
         self.broadcast_entity_event(slot.into());
-        self.refresh_equipment_attribute_modifiers(slot);
+        self.living_base()
+            .remove_equipment_attribute_modifiers(slot);
     }
 
     /// Returns vanilla `LivingEntity.canFreeze()` after concrete entity exemptions.
@@ -2022,6 +2036,7 @@ pub trait LivingEntity: Entity {
     /// The default `Entity::tick` dispatches living entities here.
     fn tick_living_entity(&self, entity: &SharedEntity) {
         self.default_tick();
+        self.tick_stuck_arrow_count();
         self.living_base().decrement_invulnerable_time();
 
         if self.is_dead_or_dying() {
@@ -2981,6 +2996,16 @@ pub trait LivingEntity: Entity {
     fn set_arrow_count(&self, arrow_count: i32) {
         if let Some(data) = self.living_synced_data() {
             data.set_arrow_count(arrow_count);
+        }
+    }
+
+    /// Detaches one stuck arrow when vanilla's decay timer elapses.
+    fn tick_stuck_arrow_count(&self) {
+        if let Some(arrow_count) = self
+            .living_base()
+            .tick_stuck_arrow_count(self.arrow_count())
+        {
+            self.set_arrow_count(arrow_count);
         }
     }
 

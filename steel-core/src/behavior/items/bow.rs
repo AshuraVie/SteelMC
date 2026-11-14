@@ -81,6 +81,7 @@ impl ItemBehavior for BowItem {
             return false;
         }
 
+        let weapon_item = stack.item();
         let projectiles = self.draw(stack, &projectile, slot, player);
         if !projectiles.is_empty() {
             let hand = player
@@ -110,7 +111,7 @@ impl ItemBehavior for BowItem {
             pitch,
             None,
         );
-        player.award_stat(&vanilla_stat_types::ITEM_USED, stack.item());
+        player.award_stat(&vanilla_stat_types::ITEM_USED, weapon_item);
         true
     }
 

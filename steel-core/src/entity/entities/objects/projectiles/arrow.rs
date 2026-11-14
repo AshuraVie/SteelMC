@@ -259,6 +259,10 @@ impl Entity for ArrowEntity {
         self.arrow_player_touch(player);
     }
 
+    fn with_weapon_item(&self, visitor: &mut dyn FnMut(Option<&ItemStack>)) {
+        self.arrow_with_weapon_item(visitor);
+    }
+
     fn save_additional(&self, nbt: &mut NbtCompound) {
         self.save_projectile(nbt);
         self.arrow_save(nbt);
@@ -297,6 +301,10 @@ impl Projectile for ArrowEntity {
 
     fn on_hit_block(self: Arc<Self>, hit: &ClipHitResult) {
         self.arrow_on_hit_block(hit);
+    }
+
+    fn should_bounce_on_world_border(&self) -> bool {
+        self.arrow_should_bounce_on_world_border()
     }
 }
 
