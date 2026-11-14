@@ -1960,12 +1960,7 @@ pub(crate) fn populate_default_equipment_slots_default<M: Mob + ?Sized>(
         OTHER_ARMOR_PARTIAL_CHANCE
     };
     let mut first = true;
-    for slot in [
-        EquipmentSlot::Head,
-        EquipmentSlot::Chest,
-        EquipmentSlot::Legs,
-        EquipmentSlot::Feet,
-    ] {
+    for slot in EquipmentSlot::ARMOR_SLOTS {
         if !first && rand::random::<f32>() < partial_chance {
             break;
         }
