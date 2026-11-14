@@ -846,8 +846,8 @@ pub trait Entity: EntityEventSource + ErasedType + Send + Sync + 'static {
     }
 
     /// Repositions a direct passenger from this vehicle's attachment point.
-    fn position_rider(&self, passenger: &dyn Entity, move_fn: RiderMove) {
-        position_rider_default(self, passenger, move_fn);
+    fn position_rider(&self, passenger: &dyn Entity, move_behavior: RiderMove) {
+        position_rider_default(self, passenger, move_behavior);
     }
 
     /// Returns this entity's root vehicle ID, or this entity's ID when it is not riding.
@@ -4132,7 +4132,7 @@ fn compute_modified_friction(friction: f64, modifier: f64) -> f64 {
 pub(crate) fn position_rider_default<E: Entity + ?Sized>(
     entity: &E,
     passenger: &dyn Entity,
-    move_fn: RiderMove,
+    move_behavior: RiderMove,
 ) {
     if !entity.has_passenger(passenger) {
         return;
@@ -4148,7 +4148,7 @@ pub(crate) fn position_rider_default<E: Entity + ?Sized>(
         );
         return;
     }
-    if move_fn == RiderMove::Snap {
+    if move_behavior == RiderMove::Snap {
         passenger.set_old_position_to_current();
         passenger.base().set_old_rotation_to_current();
     }

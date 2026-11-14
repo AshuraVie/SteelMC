@@ -459,8 +459,8 @@ impl Entity for ChickenEntity {
         state.next_flap = fly_dist + state.flap_speed / NEXT_FLAP_SPEED_DIVISOR;
     }
 
-    fn position_rider(&self, passenger: &dyn Entity, move_fn: RiderMove) {
-        position_rider_default(self, passenger, move_fn);
+    fn position_rider(&self, passenger: &dyn Entity, move_behavior: RiderMove) {
+        position_rider_default(self, passenger, move_behavior);
         if let Some(living) = passenger.as_living_entity() {
             living.set_y_body_rot(self.y_body_rot());
         }
