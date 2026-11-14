@@ -288,7 +288,7 @@ impl Server {
                     .map(|world| &world.key)
                     .zip(world_timings),
             ) {
-                completed.finish();
+                completed.finish(&self);
             }
 
             if let Some(tick_stats) = tab_list_tick_stats {

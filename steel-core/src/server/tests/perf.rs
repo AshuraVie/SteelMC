@@ -55,6 +55,11 @@ fn perf_start_stop_writes_a_json_report() {
 
         let report = wait_for_report(&results_dir).await;
         assert_eq!(report["ticks"], 1);
+        assert_eq!(report["system"]["operating_system"], std::env::consts::OS);
+        assert_eq!(
+            report["server"]["view_distance"],
+            server.config.view_distance
+        );
         let world_key = world.key.to_string();
         let world_report = &report["worlds"][world_key.as_str()];
         assert!(
@@ -65,6 +70,9 @@ fn perf_start_stop_writes_a_json_report() {
         assert!(world_report["chunk_map"]["tick_chunks"].is_object());
         assert!(world_report["counts"]["tickable_chunks"].is_object());
         assert!(world_report["counts"]["readiness_lookup_evictions"].is_object());
+        assert!(world_report["difficulty"].is_string());
+        // Captured from the loaded level data, not left at the empty default.
+        assert!(world_report["gamerules"]["random_tick_speed"].is_number());
 
         fs::remove_dir_all(results_dir)
             .await

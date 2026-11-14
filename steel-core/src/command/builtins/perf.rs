@@ -20,7 +20,7 @@ fn start_profiling(
     context: &SteelCommandContext<CommandSource>,
 ) -> Result<i32, CommandSyntaxError> {
     let source = context.source();
-    if !source.server().perf.start(source.clone()) {
+    if !source.server().perf.start(source.sender().clone()) {
         return Err(CommandSyntaxError::dynamic(TextComponent::from(
             &translations::COMMANDS_PERF_ALREADY_RUNNING,
         )));
@@ -40,7 +40,7 @@ fn stop_profiling(context: &SteelCommandContext<CommandSource>) -> Result<i32, C
         )));
     };
 
-    recording.finish();
+    recording.finish(context.source().server());
     Ok(0)
 }
 
